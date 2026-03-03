@@ -962,7 +962,7 @@
 
   .diceFab{
     right: calc(8px + env(safe-area-inset-right, 0px));
-    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   }
 
 }
@@ -1624,7 +1624,6 @@
         <div id="gatePageTitle" class="gateTitle">Morning Gate</div>
         <div class="gateSub">ตั้งค่า + เปิด/ปิด Gate (Trigger ล็อก 7 วัน)</div>
       </div>
-      <button id="gatePageCloseBtn" class="btn ghost" type="button" aria-label="Close">✕</button>
     </div>
 
     <!-- Body -->
@@ -1681,2285 +1680,2295 @@
   - Robust: missing HTML parts won't crash (null guards)
 ========================================================= */
 
-/* =========================
-  STORAGE KEYS
-========================= */
-const KEY_STATE   = "qps_timer_state_v4";
-const KEY_DATA    = "qpsData_v4";
-const KEY_STREAK  = "qps_streak_v2";
-const KEY_UNDO    = "qps_undo_v2";
-const KEY_ONBOARD = "qps_onboard_seen_v2";
+  /* =========================
+    STORAGE KEYS
+  ========================= */
+  const KEY_STATE   = "qps_timer_state_v4";
+  const KEY_DATA    = "qpsData_v4";
+  const KEY_STREAK  = "qps_streak_v2";
+  const KEY_UNDO    = "qps_undo_v2";
+  const KEY_ONBOARD = "qps_onboard_seen_v2";
 
-/* Morning Gate */
-const KEY_GATE      = "qps_morning_gate_v3";
-const KEY_GATE_CFG  = "qps_morning_gate_cfg_v1";
-const KEY_GATE_PREF_LEGACY = "qps_gate_pref_v1";
+  /* Morning Gate */
+  const KEY_GATE      = "qps_morning_gate_v3";
+  const KEY_GATE_CFG  = "qps_morning_gate_cfg_v1";
+  const KEY_GATE_PREF_LEGACY = "qps_gate_pref_v1";
 
-/* Random Quest */
-const KEY_RQ_DONE_PREFIX = "qps_rq_done_ids_";   // + YYYY-MM-DD
-const KEY_RQ_CD          = "qps_rq_cooldown_until";
-const KEY_RQ_SEL         = "qps_rq_selected";
+  /* Random Quest */
+  const KEY_RQ_DONE_PREFIX = "qps_rq_done_ids_";   // + YYYY-MM-DD
+  const KEY_RQ_CD          = "qps_rq_cooldown_until";
+  const KEY_RQ_SEL         = "qps_rq_selected";
 
-/* =========================
-  RULES
-========================= */
-const RULES = {
-  basePerMinute: 0.4,
-  bonusMinMinutes: 30,
-  baseCapPerQuestNamePerDay: 60,
-};
+  /* =========================
+    RULES
+  ========================= */
+  const RULES = {
+    basePerMinute: 0.4,
+    bonusMinMinutes: 30,
+    baseCapPerQuestNamePerDay: 60,
+  };
 
-const GATE_RULES = {
-  limitMin: 10,
-  qualifyMin: 3,
-  bonusPoints: 6,
-  lockDays: 7
-};
+  const GATE_RULES = {
+    limitMin: 10,
+    qualifyMin: 3,
+    bonusPoints: 6,
+    lockDays: 7
+  };
 
-const RQ_RULES = {
-  cooldownMin: 30,
-  lookbackDays: 30
-};
+  const RQ_RULES = {
+    cooldownMin: 30,
+    lookbackDays: 30
+  };
 
-/* =========================
-  DOM SAFE HELPERS
-========================= */
-const $ = (id)=> document.getElementById(id);
-function on(el, ev, fn, opt){
-  if(!el) return;
-  el.addEventListener(ev, fn, opt);
-}
-function setText(el, txt){
-  if(!el) return;
-  el.textContent = txt;
-}
-function setHTML(el, html){
-  if(!el) return;
-  el.innerHTML = html;
-}
-function show(el){
-  if(!el) return;
-  el.style.display = "";
-}
-function hide(el){
-  if(!el) return;
-  el.style.display = "none";
-}
-function cls(el, name, onOff){
-  if(!el) return;
-  el.classList.toggle(name, !!onOff);
-}
-
-/* =========================
-  UTIL
-========================= */
-function localDateKey(d = new Date()){
-  const y=d.getFullYear();
-  const m=String(d.getMonth()+1).padStart(2,"0");
-  const day=String(d.getDate()).padStart(2,"0");
-  return `${y}-${m}-${day}`;
-}
-function addDays(dateKey, delta){
-  const [y,m,d] = dateKey.split("-").map(Number);
-  const dt = new Date(y, m-1, d);
-  dt.setDate(dt.getDate() + delta);
-  return localDateKey(dt);
-}
-function formatHMS(ms){
-  const s=Math.max(0,Math.floor(ms/1000));
-  const hh=String(Math.floor(s/3600)).padStart(2,"0");
-  const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");
-  const ss=String(s%60).padStart(2,"0");
-  return `${hh}:${mm}:${ss}`;
-}
-function formatMMSS(sec){
-  const s = Math.max(0, Math.floor(sec));
-  const mm = String(Math.floor(s/60)).padStart(2,"0");
-  const ss = String(s%60).padStart(2,"0");
-  return `${mm}:${ss}`;
-}
-function round1(n){ return Math.round(n*10)/10; }
-function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
-function escapeHtml(str){
-  return String(str ?? "")
-    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
-}
-function scrollToId(id){
-  const el = $(id);
-  if(!el) return;
-  el.scrollIntoView({ behavior:"smooth", block:"start" });
-}
-function normQuestName(name){
-  return (name || "").trim().replace(/\s+/g," ");
-}
-function sanitizeDigitsOnly(v){ return String(v ?? "").replace(/[^\d]/g,""); }
-function parseHHMM(s){
-  const m = String(s||"").match(/^(\d{2}):(\d{2})$/);
-  if(!m) return null;
-  const hh = Number(m[1]), mm = Number(m[2]);
-  if(!Number.isFinite(hh)||!Number.isFinite(mm)) return null;
-  if(hh<0||hh>23||mm<0||mm>59) return null;
-  return { hh, mm };
-}
-function todayAtHHMM(triggerStr){
-  const t = parseHHMM(triggerStr);
-  const now = new Date();
-  if(!t) return null;
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), t.hh, t.mm, 0, 0);
-}
-function msToHuman(ms){
-  ms = Math.max(0, ms|0);
-  const totalMin = Math.ceil(ms/60000);
-  const d = Math.floor(totalMin / (60*24));
-  const h = Math.floor((totalMin - d*60*24) / 60);
-  const m = totalMin - d*60*24 - h*60;
-  if(d>0) return `${d}d ${h}h`;
-  if(h>0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-/* =========================
-  DATA LAYER
-========================= */
-function loadAll(){
-  try { return JSON.parse(localStorage.getItem(KEY_DATA)) || {}; }
-  catch { return {}; }
-}
-function saveAll(data){
-  localStorage.setItem(KEY_DATA, JSON.stringify(data));
-}
-function ensureDay(data, dateKey){
-  if(!data[dateKey]) data[dateKey] = { totalQps: 0, quests: [] };
-  if(!Array.isArray(data[dateKey].quests)) data[dateKey].quests = [];
-  if(typeof data[dateKey].totalQps !== "number") data[dateKey].totalQps = 0;
-  return data[dateKey];
-}
-function recalcDayTotal(dayObj){
-  const total = (dayObj.quests||[]).reduce((s,q)=> s + (Number(q.questScore)||0), 0);
-  dayObj.totalQps = round1(total);
-}
-function listDays(){
-  const data = loadAll();
-  return Object.keys(data).sort().reverse();
-}
-function calcDayTotal(dateKey){
-  const data = loadAll();
-  const day = data[dateKey];
-  if(!day) return 0;
-  return round1(typeof day.totalQps === "number"
-    ? day.totalQps
-    : (day.quests||[]).reduce((s,q)=> s + (Number(q.questScore)||0), 0)
-  );
-}
-function calcQuestBaseMinutesUsed(dateKey, questName){
-  const data = loadAll();
-  const day = data[dateKey];
-  if(!day || !Array.isArray(day.quests)) return 0;
-  const qn = normQuestName(questName).toLowerCase();
-  return day.quests
-    .filter(x => (normQuestName(x.questName).toLowerCase() === qn))
-    .reduce((s,x) => s + (Number(x.baseMinutesUsed)||0), 0);
-}
-function isQuestNameDuplicateToday(dateKey, questName){
-  const data = loadAll();
-  const day = data[dateKey];
-  if(!day || !Array.isArray(day.quests)) return false;
-  const qn = normQuestName(questName).toLowerCase();
-  return day.quests.some(x => normQuestName(x.questName).toLowerCase() === qn);
-}
-function isDayDone(dateKey){
-  const data = loadAll();
-  const day = data[dateKey];
-  return !!(day && Array.isArray(day.quests) && day.quests.length > 0);
-}
-function isFirstQuestAlreadyDoneToday(){
-  return isDayDone(localDateKey());
-}
-
-/* =========================
-  STREAK
-========================= */
-function loadStreak(){
-  const raw = localStorage.getItem(KEY_STREAK);
-  try { return raw ? JSON.parse(raw) : { current:0, best:0, lastDone:null }; }
-  catch { return { current:0, best:0, lastDone:null }; }
-}
-function saveStreak(s){ localStorage.setItem(KEY_STREAK, JSON.stringify(s)); }
-function computeStreakFromLogs(){
-  const today = localDateKey();
-  if(!isDayDone(today)) return { current:0 };
-
-  let current = 0;
-  let cursor = today;
-  while(isDayDone(cursor)){
-    current++;
-    cursor = addDays(cursor, -1);
+  /* =========================
+    DOM SAFE HELPERS
+  ========================= */
+  const $ = (id)=> document.getElementById(id);
+  function on(el, ev, fn, opt){
+    if(!el) return;
+    el.addEventListener(ev, fn, opt);
   }
-  return { current };
-}
-function updateStreakAfterChange(){
-  const s = loadStreak();
-  const computed = computeStreakFromLogs();
-  s.current = computed.current;
-  if(s.current > (s.best || 0)) s.best = s.current;
-  s.lastDone = isDayDone(localDateKey()) ? localDateKey() : s.lastDone;
-  saveStreak(s);
-  renderStreak();
-}
-function renderStreak(){
-  const s = loadStreak();
-  if(!el.streakPill) return;
-  el.streakPill.innerHTML = `🔥 Streak: <b>${s.current}</b> • Best: <b>${s.best}</b>`;
-}
-
-/* =========================
-  UNDO/REDO
-========================= */
-function loadUndo(){
-  try { return JSON.parse(localStorage.getItem(KEY_UNDO)) || { undo: null, redo: null }; }
-  catch { return { undo:null, redo:null }; }
-}
-function saveUndo(u){ localStorage.setItem(KEY_UNDO, JSON.stringify(u)); }
-function snapshotData(){ return loadAll(); }
-function applySnapshot(snap){
-  if(!snap || typeof snap !== "object") return;
-  saveAll(snap);
-  updateStreakAfterChange();
-  updateUI();
-  if(el.overlay?.classList.contains("show")){
-    renderHistoryDays();
-    renderDayView(selectedDay || localDateKey());
+  function setText(el, txt){
+    if(!el) return;
+    el.textContent = txt;
   }
-}
-function pushUndoSnapshot(){
-  const u = loadUndo();
-  u.undo = snapshotData();
-  u.redo = null;
-  saveUndo(u);
-  renderUndoRedo();
-}
-function renderUndoRedo(){
-  const u = loadUndo();
-  if(el.undoBtn) el.undoBtn.disabled = !u.undo;
-  if(el.redoBtn) el.redoBtn.disabled = !u.redo;
-}
-function doUndo(){
-  const u = loadUndo();
-  if(!u.undo) return;
-  u.redo = snapshotData();
-  const back = u.undo;
-  u.undo = null;
-  saveUndo(u);
-  applySnapshot(back);
-  renderUndoRedo();
-}
-function doRedo(){
-  const u = loadUndo();
-  if(!u.redo) return;
-  u.undo = snapshotData();
-  const fwd = u.redo;
-  u.redo = null;
-  saveUndo(u);
-  applySnapshot(fwd);
-  renderUndoRedo();
-}
+  function setHTML(el, html){
+    if(!el) return;
+    el.innerHTML = html;
+  }
+  function show(el){
+    if(!el) return;
+    el.style.display = "";
+  }
+  function hide(el){
+    if(!el) return;
+    el.style.display = "none";
+  }
+  function cls(el, name, onOff){
+    if(!el) return;
+    el.classList.toggle(name, !!onOff);
+  }
 
-/* =========================
-  ELEMENTS
-========================= */
-const el = {
-  appScroll: $("appScroll"),
+  /* =========================
+    UTIL
+  ========================= */
+  function localDateKey(d = new Date()){
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,"0");
+    const day=String(d.getDate()).padStart(2,"0");
+    return `${y}-${m}-${day}`;
+  }
+  function addDays(dateKey, delta){
+    const [y,m,d] = dateKey.split("-").map(Number);
+    const dt = new Date(y, m-1, d);
+    dt.setDate(dt.getDate() + delta);
+    return localDateKey(dt);
+  }
+  function formatHMS(ms){
+    const s=Math.max(0,Math.floor(ms/1000));
+    const hh=String(Math.floor(s/3600)).padStart(2,"0");
+    const mm=String(Math.floor((s%3600)/60)).padStart(2,"0");
+    const ss=String(s%60).padStart(2,"0");
+    return `${hh}:${mm}:${ss}`;
+  }
+  function formatMMSS(sec){
+    const s = Math.max(0, Math.floor(sec));
+    const mm = String(Math.floor(s/60)).padStart(2,"0");
+    const ss = String(s%60).padStart(2,"0");
+    return `${mm}:${ss}`;
+  }
+  function round1(n){ return Math.round(n*10)/10; }
+  function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+  function escapeHtml(str){
+    return String(str ?? "")
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  }
+  function scrollToId(id){
+    const el = $(id);
+    if(!el) return;
+    el.scrollIntoView({ behavior:"smooth", block:"start" });
+  }
+  function normQuestName(name){
+    return (name || "").trim().replace(/\s+/g," ");
+  }
+  function sanitizeDigitsOnly(v){ return String(v ?? "").replace(/[^\d]/g,""); }
+  function parseHHMM(s){
+    const m = String(s||"").match(/^(\d{2}):(\d{2})$/);
+    if(!m) return null;
+    const hh = Number(m[1]), mm = Number(m[2]);
+    if(!Number.isFinite(hh)||!Number.isFinite(mm)) return null;
+    if(hh<0||hh>23||mm<0||mm>59) return null;
+    return { hh, mm };
+  }
+  function todayAtHHMM(triggerStr){
+    const t = parseHHMM(triggerStr);
+    const now = new Date();
+    if(!t) return null;
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), t.hh, t.mm, 0, 0);
+  }
+  function msToHuman(ms){
+    ms = Math.max(0, ms|0);
+    const totalMin = Math.ceil(ms/60000);
+    const d = Math.floor(totalMin / (60*24));
+    const h = Math.floor((totalMin - d*60*24) / 60);
+    const m = totalMin - d*60*24 - h*60;
+    if(d>0) return `${d}d ${h}h`;
+    if(h>0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
 
-  todayText: $("todayText"),
-  statusPill: $("statusPill"),
-  streakPill: $("streakPill"),
+  /* =========================
+    DATA LAYER
+  ========================= */
+  function loadAll(){
+    try { return JSON.parse(localStorage.getItem(KEY_DATA)) || {}; }
+    catch { return {}; }
+  }
+  function saveAll(data){
+    localStorage.setItem(KEY_DATA, JSON.stringify(data));
+  }
+  function ensureDay(data, dateKey){
+    if(!data[dateKey]) data[dateKey] = { totalQps: 0, quests: [] };
+    if(!Array.isArray(data[dateKey].quests)) data[dateKey].quests = [];
+    if(typeof data[dateKey].totalQps !== "number") data[dateKey].totalQps = 0;
+    return data[dateKey];
+  }
+  function recalcDayTotal(dayObj){
+    const total = (dayObj.quests||[]).reduce((s,q)=> s + (Number(q.questScore)||0), 0);
+    dayObj.totalQps = round1(total);
+  }
+  function listDays(){
+    const data = loadAll();
+    return Object.keys(data).sort().reverse();
+  }
+  function calcDayTotal(dateKey){
+    const data = loadAll();
+    const day = data[dateKey];
+    if(!day) return 0;
+    return round1(typeof day.totalQps === "number"
+      ? day.totalQps
+      : (day.quests||[]).reduce((s,q)=> s + (Number(q.questScore)||0), 0)
+    );
+  }
+  function calcQuestBaseMinutesUsed(dateKey, questName){
+    const data = loadAll();
+    const day = data[dateKey];
+    if(!day || !Array.isArray(day.quests)) return 0;
+    const qn = normQuestName(questName).toLowerCase();
+    return day.quests
+      .filter(x => (normQuestName(x.questName).toLowerCase() === qn))
+      .reduce((s,x) => s + (Number(x.baseMinutesUsed)||0), 0);
+  }
+  function isQuestNameDuplicateToday(dateKey, questName){
+    const data = loadAll();
+    const day = data[dateKey];
+    if(!day || !Array.isArray(day.quests)) return false;
+    const qn = normQuestName(questName).toLowerCase();
+    return day.quests.some(x => normQuestName(x.questName).toLowerCase() === qn);
+  }
+  function isDayDone(dateKey){
+    const data = loadAll();
+    const day = data[dateKey];
+    return !!(day && Array.isArray(day.quests) && day.quests.length > 0);
+  }
+  function isFirstQuestAlreadyDoneToday(){
+    return isDayDone(localDateKey());
+  }
 
-  // top-right button (ONLY entry to Gate Page)
-  gateToggleBtn: $("gateToggleBtn"),
+  /* =========================
+    STREAK
+  ========================= */
+  function loadStreak(){
+    const raw = localStorage.getItem(KEY_STREAK);
+    try { return raw ? JSON.parse(raw) : { current:0, best:0, lastDone:null }; }
+    catch { return { current:0, best:0, lastDone:null }; }
+  }
+  function saveStreak(s){ localStorage.setItem(KEY_STREAK, JSON.stringify(s)); }
+  function computeStreakFromLogs(){
+    const today = localDateKey();
+    if(!isDayDone(today)) return { current:0 };
 
-  category: $("category"),
-  questName: $("questName"),
-  nameWarn: $("nameWarn"),
+    let current = 0;
+    let cursor = today;
+    while(isDayDone(cursor)){
+      current++;
+      cursor = addDays(cursor, -1);
+    }
+    return { current };
+  }
+  function updateStreakAfterChange(){
+    const s = loadStreak();
+    const computed = computeStreakFromLogs();
+    s.current = computed.current;
+    if(s.current > (s.best || 0)) s.best = s.current;
+    s.lastDone = isDayDone(localDateKey()) ? localDateKey() : s.lastDone;
+    saveStreak(s);
+    renderStreak();
+  }
+  function renderStreak(){
+    const s = loadStreak();
+    if(!el.streakPill) return;
+    el.streakPill.innerHTML = `🔥 Streak: <b>${s.current}</b> • Best: <b>${s.best}</b>`;
+  }
 
-  timerText: $("timerText"),
-  timerHint: $("timerHint"),
-  timerWarn: $("timerWarn"),
+  /* =========================
+    UNDO/REDO
+  ========================= */
+  function loadUndo(){
+    try { return JSON.parse(localStorage.getItem(KEY_UNDO)) || { undo: null, redo: null }; }
+    catch { return { undo:null, redo:null }; }
+  }
+  function saveUndo(u){ localStorage.setItem(KEY_UNDO, JSON.stringify(u)); }
+  function snapshotData(){ return loadAll(); }
+  function applySnapshot(snap){
+    if(!snap || typeof snap !== "object") return;
+    saveAll(snap);
+    updateStreakAfterChange();
+    updateUI();
+    if(el.overlay?.classList.contains("show")){
+      renderHistoryDays();
+      renderDayView(selectedDay || localDateKey());
+    }
+  }
+  function pushUndoSnapshot(){
+    const u = loadUndo();
+    u.undo = snapshotData();
+    u.redo = null;
+    saveUndo(u);
+    renderUndoRedo();
+  }
+  function renderUndoRedo(){
+    const u = loadUndo();
+    if(el.undoBtn) el.undoBtn.disabled = !u.undo;
+    if(el.redoBtn) el.redoBtn.disabled = !u.redo;
+  }
+  function doUndo(){
+    const u = loadUndo();
+    if(!u.undo) return;
+    u.redo = snapshotData();
+    const back = u.undo;
+    u.undo = null;
+    saveUndo(u);
+    applySnapshot(back);
+    renderUndoRedo();
+  }
+  function doRedo(){
+    const u = loadUndo();
+    if(!u.redo) return;
+    u.undo = snapshotData();
+    const fwd = u.redo;
+    u.redo = null;
+    saveUndo(u);
+    applySnapshot(fwd);
+    renderUndoRedo();
+  }
 
-  startBtn: $("startBtn"),
-  stopBtn: $("stopBtn"),
-  pauseBtn: $("pauseBtn"),
-  resumeBtn: $("resumeBtn"),
+  /* =========================
+    ELEMENTS
+  ========================= */
+  const el = {
+    appScroll: $("appScroll"),
 
-  reportCard: $("reportCard"),
-  reportMinutes: $("reportMinutes"),
-  qualityBonus: $("qualityBonus"),
-  notes: $("notes"),
-  bonusRuleHint: $("bonusRuleHint"),
-  capHint: $("capHint"),
-  submitReportBtn: $("submitReportBtn"),
-  discardBtn: $("discardBtn"),
-  submitOk: $("submitOk"),
-  submitWarn: $("submitWarn"),
+    todayText: $("todayText"),
+    statusPill: $("statusPill"),
+    streakPill: $("streakPill"),
 
-  todayTotal: $("todayTotal"),
-  progressFill: $("progressFill"),
-  todayList: $("todayList"),
+    // top-right button (ONLY entry to Gate Page)
+    gateToggleBtn: $("gateToggleBtn"),
 
-  historyBtn: $("historyBtn"),
-  resetTodayBtn: $("resetTodayBtn"),
-  undoBtn: $("undoBtn"),
-  redoBtn: $("redoBtn"),
+    category: $("category"),
+    questName: $("questName"),
+    nameWarn: $("nameWarn"),
 
-  exportBtn: $("exportBtn"),
-  importBtn: $("importBtn"),
-  importFile: $("importFile"),
+    timerText: $("timerText"),
+    timerHint: $("timerHint"),
+    timerWarn: $("timerWarn"),
 
-  overlay: $("overlay"),
-  closeOverlayBtn: $("closeOverlayBtn"),
-  dayList: $("dayList"),
-  dayView: $("dayView"),
-  histTitle: $("histTitle"),
+    startBtn: $("startBtn"),
+    stopBtn: $("stopBtn"),
+    pauseBtn: $("pauseBtn"),
+    resumeBtn: $("resumeBtn"),
 
-  tooltip: $("tooltip"),
-  tipArrow: $("tipArrow"),
-  tipTitle: $("tipTitle"),
-  tipBody: $("tipBody"),
-  tipCloseBtn: $("tipCloseBtn"),
+    reportCard: $("reportCard"),
+    reportMinutes: $("reportMinutes"),
+    qualityBonus: $("qualityBonus"),
+    notes: $("notes"),
+    bonusRuleHint: $("bonusRuleHint"),
+    capHint: $("capHint"),
+    submitReportBtn: $("submitReportBtn"),
+    discardBtn: $("discardBtn"),
+    submitOk: $("submitOk"),
+    submitWarn: $("submitWarn"),
 
-  onOverlay: $("onOverlay"),
-  openOnboardBtn: $("openOnboardBtn"),
-  okOnBtn: $("okOnBtn"),
+    todayTotal: $("todayTotal"),
+    progressFill: $("progressFill"),
+    todayList: $("todayList"),
 
-  cutWrap: $("cutWrap"),
-  cutToggleBtn: $("cutToggleBtn"),
-  cutBody: $("cutBody"),
-  cutChip: $("cutChip"),
-  cutMinutes: $("cutMinutes"),
-  cutMode: $("cutMode"),
+    historyBtn: $("historyBtn"),
+    resetTodayBtn: $("resetTodayBtn"),
+    undoBtn: $("undoBtn"),
+    redoBtn: $("redoBtn"),
 
-  reportHiddenHint: $("reportHiddenHint"),
+    exportBtn: $("exportBtn"),
+    importBtn: $("importBtn"),
+    importFile: $("importFile"),
 
-  // Morning Gate cover/top bar
-  gateCover: $("gateCover"),
-  gateCoverStatusChip: $("gateCoverStatusChip"),
-  gateCoverTime: $("gateCoverTime"),
-  gateCoverHint: $("gateCoverHint"),
-  gateCoverKicker: $("gateCoverKicker"),
-  gateCoverStartBtn: $("gateCoverStartBtn"),
-  gateTriggerDisplay: $("gateTriggerDisplay"),
-  gateLimitDisplay: $("gateLimitDisplay"),
-  gateQualifyDisplay: $("gateQualifyDisplay"),
+    overlay: $("overlay"),
+    closeOverlayBtn: $("closeOverlayBtn"),
+    dayList: $("dayList"),
+    dayView: $("dayView"),
+    histTitle: $("histTitle"),
 
-  gateTopBar: $("gateTopBar"),
-  gateTopTitle: $("gateTopTitle"),
-  gateTopSub: $("gateTopSub"),
-  gateTopTime: $("gateTopTime"),
-  gateTopOpenBtn: $("gateTopOpenBtn"),
+    tooltip: $("tooltip"),
+    tipArrow: $("tipArrow"),
+    tipTitle: $("tipTitle"),
+    tipBody: $("tipBody"),
+    tipCloseBtn: $("tipCloseBtn"),
 
-  // Gate Page (NEW — optional but recommended)
-  gatePage: $("gatePage"),
-  gatePageCloseBtn: $("gatePageCloseBtn"),
-  gatePageEnableBtn: $("gatePageEnableBtn"),
-  gatePageTriggerInput: $("gatePageTriggerInput"),
-  gatePageHint: $("gatePageHint"),
+    onOverlay: $("onOverlay"),
+    openOnboardBtn: $("openOnboardBtn"),
+    okOnBtn: $("okOnBtn"),
 
-  // Dice UI
-  diceFab: $("diceFab"),
-  diceBtn: $("diceBtn"),
-  diceCd: $("diceCd"),
+    cutWrap: $("cutWrap"),
+    cutToggleBtn: $("cutToggleBtn"),
+    cutBody: $("cutBody"),
+    cutChip: $("cutChip"),
+    cutMinutes: $("cutMinutes"),
+    cutMode: $("cutMode"),
 
-  rqOverlay: $("rqOverlay"),
-  rqClose: $("rqClose"),
-  rqModalSub: $("rqModalSub"),
+    reportHiddenHint: $("reportHiddenHint"),
 
-  rqPickLow: $("rqPickLow"),
-  rqPickMid: $("rqPickMid"),
-  rqPickHigh: $("rqPickHigh"),
+    // Morning Gate cover/top bar
+    gateCover: $("gateCover"),
+    gateCoverStatusChip: $("gateCoverStatusChip"),
+    gateCoverTime: $("gateCoverTime"),
+    gateCoverHint: $("gateCoverHint"),
+    gateCoverKicker: $("gateCoverKicker"),
+    gateCoverStartBtn: $("gateCoverStartBtn"),
+    gateTriggerDisplay: $("gateTriggerDisplay"),
+    gateLimitDisplay: $("gateLimitDisplay"),
+    gateQualifyDisplay: $("gateQualifyDisplay"),
 
-  rqResult2: $("rqResult2"),
-  rqBigName: $("rqBigName"),
-  rqMeta2: $("rqMeta2"),
-  rqStartNow2: $("rqStartNow2"),
-  rqClear2: $("rqClear2"),
-};
+    gateTopBar: $("gateTopBar"),
+    gateTopTitle: $("gateTopTitle"),
+    gateTopSub: $("gateTopSub"),
+    gateTopTime: $("gateTopTime"),
+    gateTopOpenBtn: $("gateTopOpenBtn"),
 
-/* =========================
-  STATE (timer)
-========================= */
-let state = {
-  status: "idle", // idle|running|paused|stopped
-  startTs: null,
-  elapsedBefore: 0,
-  lastElapsedMs: 0,
-  startDateKey: null,
+    // Gate Page (NEW — optional but recommended)
+    gatePage: $("gatePage"),
+    gatePageCloseBtn: $("gatePageCloseBtn"),
+    gatePageEnableBtn: $("gatePageEnableBtn"),
+    gatePageTriggerInput: $("gatePageTriggerInput"),
+    gatePageHint: $("gatePageHint"),
 
-  selectedCategory: "Learning",
-  questName: "",
+    // Dice UI
+    diceFab: $("diceFab"),
+    diceBtn: $("diceBtn"),
+    diceCd: $("diceCd"),
 
-  cutEnabled: false,
-  cutMinutes: null,
-  cutMode: "hard",
+    rqOverlay: $("rqOverlay"),
+    rqClose: $("rqClose"),
+    rqModalSub: $("rqModalSub"),
 
-  softWarned: false,
-  softDeadlineTs: 0,
-};
-let tickHandle = null;
+    rqPickLow: $("rqPickLow"),
+    rqPickMid: $("rqPickMid"),
+    rqPickHigh: $("rqPickHigh"),
 
-function saveState(){ localStorage.setItem(KEY_STATE, JSON.stringify(state)); }
-function loadState(){
-  const raw = localStorage.getItem(KEY_STATE);
-  if(!raw) return;
-  try{
-    const s = JSON.parse(raw);
-    if(s && typeof s==="object") state = { ...state, ...s };
-  }catch{}
-}
+    rqResult2: $("rqResult2"),
+    rqBigName: $("rqBigName"),
+    rqMeta2: $("rqMeta2"),
+    rqStartNow2: $("rqStartNow2"),
+    rqClear2: $("rqClear2"),
+  };
 
-/* =========================
-  MORNING GATE CONFIG (lock 7 days)
-========================= */
-let gateCfg = {
-  enabled: false,
-  triggerHHMM: null,
-  lockedUntil: 0,
-  effectiveFrom: null
-};
+  /* =========================
+    STATE (timer)
+  ========================= */
+  let state = {
+    status: "idle", // idle|running|paused|stopped
+    startTs: null,
+    elapsedBefore: 0,
+    lastElapsedMs: 0,
+    startDateKey: null,
 
-function loadGateCfg(){
-  gateCfg = { enabled:false, triggerHHMM:null, lockedUntil:0, effectiveFrom:null };
+    selectedCategory: "Learning",
+    questName: "",
 
-  // migrate legacy if present
-  try{
-    const legacyRaw = localStorage.getItem(KEY_GATE_PREF_LEGACY);
-    if(legacyRaw){
-      const p = JSON.parse(legacyRaw);
-      if(p && typeof p==="object" && /^\d{2}:\d{2}$/.test(p.triggerHHMM)){
-        const last = Number(p.lastChangedAt || 0);
-        const lockedUntil = last ? (last + GATE_RULES.lockDays*24*60*60*1000) : 0;
-        gateCfg.triggerHHMM = p.triggerHHMM;
-        gateCfg.enabled = !!p.enabled;
-        gateCfg.lockedUntil = lockedUntil;
-        gateCfg.effectiveFrom = localDateKey();
+    cutEnabled: false,
+    cutMinutes: null,
+    cutMode: "hard",
+
+    softWarned: false,
+    softDeadlineTs: 0,
+  };
+  let tickHandle = null;
+
+  function saveState(){ localStorage.setItem(KEY_STATE, JSON.stringify(state)); }
+  function loadState(){
+    const raw = localStorage.getItem(KEY_STATE);
+    if(!raw) return;
+    try{
+      const s = JSON.parse(raw);
+      if(s && typeof s==="object") state = { ...state, ...s };
+    }catch{}
+  }
+
+  /* =========================
+    MORNING GATE CONFIG (lock 7 days)
+  ========================= */
+  let gateCfg = {
+    enabled: false,
+    triggerHHMM: null,
+    lockedUntil: 0,
+    effectiveFrom: null
+  };
+
+  function loadGateCfg(){
+    gateCfg = { enabled:false, triggerHHMM:null, lockedUntil:0, effectiveFrom:null };
+
+    // migrate legacy if present
+    try{
+      const legacyRaw = localStorage.getItem(KEY_GATE_PREF_LEGACY);
+      if(legacyRaw){
+        const p = JSON.parse(legacyRaw);
+        if(p && typeof p==="object" && /^\d{2}:\d{2}$/.test(p.triggerHHMM)){
+          const last = Number(p.lastChangedAt || 0);
+          const lockedUntil = last ? (last + GATE_RULES.lockDays*24*60*60*1000) : 0;
+          gateCfg.triggerHHMM = p.triggerHHMM;
+          gateCfg.enabled = !!p.enabled;
+          gateCfg.lockedUntil = lockedUntil;
+          gateCfg.effectiveFrom = localDateKey();
+        }
       }
-    }
-  }catch{}
+    }catch{}
 
-  // load new cfg (overrides)
-  try{
-    const raw = localStorage.getItem(KEY_GATE_CFG);
-    if(raw){
-      const c = JSON.parse(raw);
-      if(c && typeof c==="object"){
-        gateCfg.enabled = (typeof c.enabled === "boolean") ? c.enabled : gateCfg.enabled;
-        gateCfg.triggerHHMM = /^\d{2}:\d{2}$/.test(c.triggerHHMM||"") ? c.triggerHHMM : gateCfg.triggerHHMM;
-        gateCfg.lockedUntil = Number.isFinite(Number(c.lockedUntil)) ? Number(c.lockedUntil) : gateCfg.lockedUntil;
-        gateCfg.effectiveFrom = /^\d{4}-\d{2}-\d{2}$/.test(c.effectiveFrom||"") ? c.effectiveFrom : gateCfg.effectiveFrom;
+    // load new cfg (overrides)
+    try{
+      const raw = localStorage.getItem(KEY_GATE_CFG);
+      if(raw){
+        const c = JSON.parse(raw);
+        if(c && typeof c==="object"){
+          gateCfg.enabled = (typeof c.enabled === "boolean") ? c.enabled : gateCfg.enabled;
+          gateCfg.triggerHHMM = /^\d{2}:\d{2}$/.test(c.triggerHHMM||"") ? c.triggerHHMM : gateCfg.triggerHHMM;
+          gateCfg.lockedUntil = Number.isFinite(Number(c.lockedUntil)) ? Number(c.lockedUntil) : gateCfg.lockedUntil;
+          gateCfg.effectiveFrom = /^\d{4}-\d{2}-\d{2}$/.test(c.effectiveFrom||"") ? c.effectiveFrom : gateCfg.effectiveFrom;
+        }
       }
-    }
-  }catch{}
+    }catch{}
 
-  if(gateCfg.triggerHHMM && !parseHHMM(gateCfg.triggerHHMM)) gateCfg.triggerHHMM = null;
-  if(!Number.isFinite(gateCfg.lockedUntil)) gateCfg.lockedUntil = 0;
-  if(gateCfg.effectiveFrom && !/^\d{4}-\d{2}-\d{2}$/.test(gateCfg.effectiveFrom)) gateCfg.effectiveFrom = null;
+    if(gateCfg.triggerHHMM && !parseHHMM(gateCfg.triggerHHMM)) gateCfg.triggerHHMM = null;
+    if(!Number.isFinite(gateCfg.lockedUntil)) gateCfg.lockedUntil = 0;
+    if(gateCfg.effectiveFrom && !/^\d{4}-\d{2}-\d{2}$/.test(gateCfg.effectiveFrom)) gateCfg.effectiveFrom = null;
 
-  saveGateCfg();
-}
-function saveGateCfg(){
-  localStorage.setItem(KEY_GATE_CFG, JSON.stringify(gateCfg));
-}
-function canEditTriggerNow(){
-  if(!gateCfg.triggerHHMM) return true;
-  return Date.now() >= (gateCfg.lockedUntil || 0);
-}
-function computeEffectiveFromForSetting(hhmm){
-  const t = todayAtHHMM(hhmm);
-  if(!t) return localDateKey();
-  const now = new Date();
-  if(now > t) return addDays(localDateKey(), 1);
-  return localDateKey();
-}
-function setTriggerWithLock7Days(hhmm){
-  if(!parseHHMM(hhmm)) return { ok:false, msg:"รูปแบบเวลาต้องเป็น HH:MM" };
-  if(!canEditTriggerNow()) return { ok:false, msg:"Locked ยังไม่ครบ 7 วัน" };
+    saveGateCfg();
+  }
+  function saveGateCfg(){
+    localStorage.setItem(KEY_GATE_CFG, JSON.stringify(gateCfg));
+  }
+  function canEditTriggerNow(){
+    if(!gateCfg.triggerHHMM) return true;
+    return Date.now() >= (gateCfg.lockedUntil || 0);
+  }
+  function computeEffectiveFromForSetting(hhmm){
+    const t = todayAtHHMM(hhmm);
+    if(!t) return localDateKey();
+    const now = new Date();
+    if(now > t) return addDays(localDateKey(), 1);
+    return localDateKey();
+  }
+  function setTriggerWithLock7Days(hhmm){
+    if(!parseHHMM(hhmm)) return { ok:false, msg:"รูปแบบเวลาต้องเป็น HH:MM" };
+    if(!canEditTriggerNow()) return { ok:false, msg:"Locked ยังไม่ครบ 7 วัน" };
 
-  const eff = computeEffectiveFromForSetting(hhmm);
-  gateCfg.triggerHHMM = hhmm;
-  gateCfg.lockedUntil = Date.now() + GATE_RULES.lockDays*24*60*60*1000;
-  gateCfg.effectiveFrom = eff;
+    const eff = computeEffectiveFromForSetting(hhmm);
+    gateCfg.triggerHHMM = hhmm;
+    gateCfg.lockedUntil = Date.now() + GATE_RULES.lockDays*24*60*60*1000;
+    gateCfg.effectiveFrom = eff;
 
-  saveGateCfg();
-  return { ok:true, effectiveFrom: eff };
-}
-function isGateActiveToday(){
-  if(!gateCfg.enabled) return false;
-  if(!gateCfg.triggerHHMM) return false;
-  if(!gateCfg.effectiveFrom) return false;
-  return localDateKey() >= gateCfg.effectiveFrom;
-}
-function todayTriggerTs(){
-  if(!isGateActiveToday()) return 0;
-  const t = todayAtHHMM(gateCfg.triggerHHMM);
-  return t ? t.getTime() : 0;
-}
-function todayDeadlineTs(){
-  const trig = todayTriggerTs();
-  if(!trig) return 0;
-  return trig + GATE_RULES.limitMin * 60000;
-}
-
-/* =========================
-  MORNING GATE runtime (day state)
-========================= */
-let gate = {
-  dateKey: null,
-
-  enabled: false,
-  triggerHHMM: null,
-
-  startedAt: 0,
-  locked: false,
-  unlocked: false,
-  unlockReason: "",
-  passed: false,
-
-  firstQuestStartAt: 0,
-  bonusGranted: false,
-
-  doneBannerUntil: 0
-};
-
-function saveGate(){ localStorage.setItem(KEY_GATE, JSON.stringify(gate)); }
-function gateResetForToday(force=false){
-  const today = localDateKey();
-  gate.dateKey = today;
-
-  gate.startedAt = 0;
-  gate.locked = false;
-  gate.unlocked = false;
-  gate.unlockReason = "";
-  gate.passed = false;
-  gate.firstQuestStartAt = 0;
-  gate.bonusGranted = false;
-  gate.doneBannerUntil = 0;
-
-  if(force) saveGate();
-}
-function loadGate(){
-  try{
-    const raw = localStorage.getItem(KEY_GATE);
-    if(raw){
-      const g = JSON.parse(raw);
-      if(g && typeof g==="object") gate = { ...gate, ...g };
-    }
-  }catch{}
-
-  const today = localDateKey();
-  if(gate.dateKey !== today){
-    gateResetForToday(true);
+    saveGateCfg();
+    return { ok:true, effectiveFrom: eff };
+  }
+  function isGateActiveToday(){
+    if(!gateCfg.enabled) return false;
+    if(!gateCfg.triggerHHMM) return false;
+    if(!gateCfg.effectiveFrom) return false;
+    return localDateKey() >= gateCfg.effectiveFrom;
+  }
+  function todayTriggerTs(){
+    if(!isGateActiveToday()) return 0;
+    const t = todayAtHHMM(gateCfg.triggerHHMM);
+    return t ? t.getTime() : 0;
+  }
+  function todayDeadlineTs(){
+    const trig = todayTriggerTs();
+    if(!trig) return 0;
+    return trig + GATE_RULES.limitMin * 60000;
   }
 
-  if(isFirstQuestAlreadyDoneToday()){
-    gate.passed = true;
-    gate.locked = false;
-    gate.unlocked = true;
-    saveGate();
-  }
-}
-function syncGateRuntimeFromCfg(){
-  gate.enabled = isGateActiveToday();
-  gate.triggerHHMM = gateCfg.triggerHHMM || null;
+  /* =========================
+    MORNING GATE runtime (day state)
+  ========================= */
+  let gate = {
+    dateKey: null,
 
-  if(!gate.enabled){
+    enabled: false,
+    triggerHHMM: null,
+
+    startedAt: 0,
+    locked: false,
+    unlocked: false,
+    unlockReason: "",
+    passed: false,
+
+    firstQuestStartAt: 0,
+    bonusGranted: false,
+
+    doneBannerUntil: 0
+  };
+
+  function saveGate(){ localStorage.setItem(KEY_GATE, JSON.stringify(gate)); }
+  function gateResetForToday(force=false){
+    const today = localDateKey();
+    gate.dateKey = today;
+
     gate.startedAt = 0;
     gate.locked = false;
-    gate.unlocked = true;
-    gate.passed = isFirstQuestAlreadyDoneToday() ? true : false;
-    saveGate();
+    gate.unlocked = false;
+    gate.unlockReason = "";
+    gate.passed = false;
+    gate.firstQuestStartAt = 0;
+    gate.bonusGranted = false;
+    gate.doneBannerUntil = 0;
+
+    if(force) saveGate();
   }
-}
-function gateWorldStartTs(){ return todayTriggerTs() || 0; }
-function gateWorldDeadlineTs(){ return todayDeadlineTs() || 0; }
+  function loadGate(){
+    try{
+      const raw = localStorage.getItem(KEY_GATE);
+      if(raw){
+        const g = JSON.parse(raw);
+        if(g && typeof g==="object") gate = { ...gate, ...g };
+      }
+    }catch{}
 
-function gateIsWorldActiveNow(){
-  if(!isGateActiveToday()) return false;
-  if(isFirstQuestAlreadyDoneToday() || gate.passed) return false;
-  const now = Date.now();
-  const start = gateWorldStartTs();
-  if(!start) return false;
-  return now >= start;
-}
-function gateTimeLeftSec(){
-  if(!gate.startedAt) return 0;
-  const end = gate.startedAt + GATE_RULES.limitMin * 60000;
-  const ms = end - Date.now();
-  return Math.max(0, Math.ceil(ms/1000));
-}
+    const today = localDateKey();
+    if(gate.dateKey !== today){
+      gateResetForToday(true);
+    }
 
-/* cover/topbar show/hide */
-function showGateCover(){
-  if(!el.gateCover) return;
-  el.gateCover.classList.add("show");
-  document.body.style.overflow = "hidden";
-  el.gateCover.setAttribute("aria-hidden","false");
-}
-function hideGateCover(){
-  if(!el.gateCover) return;
-  el.gateCover.classList.remove("show");
-  document.body.style.overflow = "";
-  el.gateCover.setAttribute("aria-hidden","true");
-}
-function showGateTopBar(){
-  if(!el.gateTopBar) return;
-  el.gateTopBar.classList.add("show");
-  document.body.classList.add("gateBarOn");
-}
-function hideGateTopBar(){
-  if(!el.gateTopBar) return;
-  el.gateTopBar.classList.remove("show");
-  document.body.classList.remove("gateBarOn");
-  el.gateTopBar.classList.remove("done");
-}
+    if(isFirstQuestAlreadyDoneToday()){
+      gate.passed = true;
+      gate.locked = false;
+      gate.unlocked = true;
+      saveGate();
+    }
+  }
+  function syncGateRuntimeFromCfg(){
+    gate.enabled = isGateActiveToday();
+    gate.triggerHHMM = gateCfg.triggerHHMM || null;
 
-function gateMaybeLock(){
-  if(!isGateActiveToday()) return;
-  if(gate.passed || isFirstQuestAlreadyDoneToday()) return;
-  if(!gateIsWorldActiveNow()) return;
+    if(!gate.enabled){
+      gate.startedAt = 0;
+      gate.locked = false;
+      gate.unlocked = true;
+      gate.passed = isFirstQuestAlreadyDoneToday() ? true : false;
+      saveGate();
+    }
+  }
+  function gateWorldStartTs(){ return todayTriggerTs() || 0; }
+  function gateWorldDeadlineTs(){ return todayDeadlineTs() || 0; }
 
-  const now = Date.now();
-  const deadline = gateWorldDeadlineTs();
-
-  if(deadline && now > deadline){
-    gate.locked = true;
-    if(!gate.startedAt) gate.startedAt = gateWorldStartTs();
-    saveGate();
-    return;
+  function gateIsWorldActiveNow(){
+    if(!isGateActiveToday()) return false;
+    if(isFirstQuestAlreadyDoneToday() || gate.passed) return false;
+    const now = Date.now();
+    const start = gateWorldStartTs();
+    if(!start) return false;
+    return now >= start;
+  }
+  function gateTimeLeftSec(){
+    if(!gate.startedAt) return 0;
+    const end = gate.startedAt + GATE_RULES.limitMin * 60000;
+    const ms = end - Date.now();
+    return Math.max(0, Math.ceil(ms/1000));
   }
 
-  if(!gate.startedAt) return;
-  if(gateTimeLeftSec() <= 0){
-    gate.locked = true;
-    saveGate();
+  /* cover/topbar show/hide */
+  function showGateCover(){
+    if(!el.gateCover) return;
+    el.gateCover.classList.add("show");
+    document.body.style.overflow = "hidden";
+    el.gateCover.setAttribute("aria-hidden","false");
   }
-}
-function gateCanStartQuest(){
-  if(!isGateActiveToday()) return true;
-  if(gate.passed || isFirstQuestAlreadyDoneToday()) return true;
-  if(!gateIsWorldActiveNow()) return true;
-  if(!gate.startedAt) return false;
-  if(gate.locked && !gate.unlocked) return false;
-  return true;
-}
-function gateEnforceStartButton(){
-  if(!el.startBtn) return;
-  if(state.status !== "idle"){
-    el.startBtn.disabled = true;
-    return;
+  function hideGateCover(){
+    if(!el.gateCover) return;
+    el.gateCover.classList.remove("show");
+    document.body.style.overflow = "";
+    el.gateCover.setAttribute("aria-hidden","true");
   }
-  el.startBtn.disabled = !gateCanStartQuest();
-}
-function gateStartFromCover(){
-  if(!isGateActiveToday()){
-    hideGateCover();
-    hideGateTopBar();
-    return;
+  function showGateTopBar(){
+    if(!el.gateTopBar) return;
+    el.gateTopBar.classList.add("show");
+    document.body.classList.add("gateBarOn");
   }
-  if(isFirstQuestAlreadyDoneToday()){
-    gate.passed = true;
-    gate.unlocked = true;
-    gate.locked = false;
-    saveGate();
-    hideGateCover();
-    hideGateTopBar();
-    return;
+  function hideGateTopBar(){
+    if(!el.gateTopBar) return;
+    el.gateTopBar.classList.remove("show");
+    document.body.classList.remove("gateBarOn");
+    el.gateTopBar.classList.remove("done");
   }
 
-  gate.startedAt = Date.now();
-  gate.locked = false;
-  gate.unlocked = false;
-  gate.unlockReason = "";
-  gate.passed = false;
-  gate.firstQuestStartAt = 0;
-  gate.doneBannerUntil = 0;
-  saveGate();
+  function gateMaybeLock(){
+    if(!isGateActiveToday()) return;
+    if(gate.passed || isFirstQuestAlreadyDoneToday()) return;
+    if(!gateIsWorldActiveNow()) return;
 
-  hideGateCover();
-  showGateTopBar();
-}
-function gateConsumeReasonIfAny(){
-  if(!gate.unlockReason) return "";
-  const msg = `Morning Gate Unlock: ${gate.unlockReason}`;
-  gate.unlockReason = "";
-  saveGate();
-  return msg;
-}
-function gateGrantBonusIfEligible(){
-  if(!isGateActiveToday()) return;
-  if(gate.bonusGranted) return;
-  if(!gate.passed) return;
+    const now = Date.now();
+    const deadline = gateWorldDeadlineTs();
 
-  const now = Date.now();
-  const deadline = gateWorldDeadlineTs();
-  if(!deadline) return;
+    if(deadline && now > deadline){
+      gate.locked = true;
+      if(!gate.startedAt) gate.startedAt = gateWorldStartTs();
+      saveGate();
+      return;
+    }
 
-  const withinDeadline = now <= deadline;
-  const blockedByUnlock = gate.unlocked === true;
-  if(!withinDeadline) return;
-  if(blockedByUnlock) return;
-
-  const todayKey = localDateKey();
-  const data = loadAll();
-  const day = ensureDay(data, todayKey);
-
-  const bonusName = "Morning Gate Bonus";
-  const exists = day.quests.some(q => normQuestName(q.questName).toLowerCase() === bonusName.toLowerCase());
-  if(exists){
-    gate.bonusGranted = true;
-    saveGate();
-    return;
+    if(!gate.startedAt) return;
+    if(gateTimeLeftSec() <= 0){
+      gate.locked = true;
+      saveGate();
+    }
   }
+  function gateCanStartQuest(){
+    if(!isGateActiveToday()) return true;
+    if(gate.passed || isFirstQuestAlreadyDoneToday()) return true;
+    if(!gateIsWorldActiveNow()) return true;
+    if(!gate.startedAt) return false;
+    if(gate.locked && !gate.unlocked) return false;
+    return true;
+  }
+  function gateEnforceStartButton(){
+    if(!el.startBtn) return;
+    if(state.status !== "idle"){
+      el.startBtn.disabled = true;
+      return;
+    }
+    el.startBtn.disabled = !gateCanStartQuest();
+  }
+  function gateStartFromCover(){
+    if(!isGateActiveToday()){
+      hideGateCover();
+      hideGateTopBar();
+      return;
+    }
+    if(isFirstQuestAlreadyDoneToday()){
+      gate.passed = true;
+      gate.unlocked = true;
+      gate.locked = false;
+      saveGate();
+      hideGateCover();
+      hideGateTopBar();
+      return;
+    }
 
-  pushUndoSnapshot();
-
-  const entry = {
-    ts: Date.now(),
-    dateKey: todayKey,
-    category: "Connection",
-    questName: bonusName,
-    minutesSpent: 0,
-    baseMinutesUsed: 0,
-    baseScore: 0,
-    qualityBonus: GATE_RULES.bonusPoints,
-    questScore: GATE_RULES.bonusPoints,
-    notes: `Auto Bonus: PASS within deadline • Trigger ${gateCfg.triggerHHMM} • Limit ${GATE_RULES.limitMin}m`
-  };
-
-  day.quests.push(entry);
-  recalcDayTotal(day);
-  saveAll(data);
-
-  gate.bonusGranted = true;
-  saveGate();
-
-  updateStreakAfterChange();
-  updateUI();
-}
-function gateCheckFirstQuestQualify(){
-  if(!isGateActiveToday()) return;
-  if(gate.passed) return;
-  if(!gate.firstQuestStartAt) return;
-  if(state.status !== "running") return;
-
-  const ms = computeElapsedMs();
-  if(ms >= GATE_RULES.qualifyMin * 60000){
-    gate.passed = true;
+    gate.startedAt = Date.now();
     gate.locked = false;
     gate.unlocked = false;
-    gate.doneBannerUntil = Date.now() + 2000;
+    gate.unlockReason = "";
+    gate.passed = false;
+    gate.firstQuestStartAt = 0;
+    gate.doneBannerUntil = 0;
     saveGate();
-    gateGrantBonusIfEligible();
 
-    // PASS แล้วโชว์ Dice
-    rqShowIfEligible();
+    hideGateCover();
+    showGateTopBar();
   }
-}
-function renderGateCoverDisplay(){
-  if(el.gateTriggerDisplay) el.gateTriggerDisplay.textContent = (gateCfg.triggerHHMM ? gateCfg.triggerHHMM : "--.--");
-  if(el.gateLimitDisplay) el.gateLimitDisplay.textContent = `${GATE_RULES.limitMin}m`;
-  if(el.gateQualifyDisplay) el.gateQualifyDisplay.textContent = `${GATE_RULES.qualifyMin}m`;
-}
-
-/* =========================
-  GATE PAGE v2 (NEW)
-  - Open ONLY from #gateToggleBtn
-  - Toggle ON/OFF + Set Trigger inside this page
-========================= */
-function openGatePage(){
-  if(!el.gatePage) return;
-  el.gatePage.classList.add("show");
-  el.gatePage.setAttribute("aria-hidden","false");
-  document.body.style.overflow = "hidden";
-  renderGatePageUI();
-}
-function closeGatePage(){
-  if(!el.gatePage) return;
-  el.gatePage.classList.remove("show");
-  el.gatePage.setAttribute("aria-hidden","true");
-  document.body.style.overflow = "";
-}
-function renderGatePageUI(){
-  // optional UI: if not present, just ignore
-  if(el.gatePageEnableBtn){
-    const canOn = !!gateCfg.triggerHHMM;
-    const onNow = gateCfg.enabled && canOn;
-    el.gatePageEnableBtn.textContent = onNow ? "ON" : "OFF";
-    el.gatePageEnableBtn.classList.toggle("on", onNow);
-    el.gatePageEnableBtn.disabled = (state.status !== "idle") || (!canOn && gateCfg.enabled);
+  function gateConsumeReasonIfAny(){
+    if(!gate.unlockReason) return "";
+    const msg = `Morning Gate Unlock: ${gate.unlockReason}`;
+    gate.unlockReason = "";
+    saveGate();
+    return msg;
   }
+  function gateGrantBonusIfEligible(){
+    if(!isGateActiveToday()) return;
+    if(gate.bonusGranted) return;
+    if(!gate.passed) return;
 
-  if(el.gatePageTriggerInput){
-    el.gatePageTriggerInput.value = gateCfg.triggerHHMM || "";
-    el.gatePageTriggerInput.disabled = (state.status !== "idle") || (!canEditTriggerNow() && gateCfg.enabled);
-  }
+    const now = Date.now();
+    const deadline = gateWorldDeadlineTs();
+    if(!deadline) return;
 
-  if(el.gatePageHint){
-    if(!gateCfg.triggerHHMM){
-      el.gatePageHint.textContent = "ยังไม่ตั้ง Trigger • ตั้งเวลาก่อน แล้วค่อยเปิด ON";
+    const withinDeadline = now <= deadline;
+    const blockedByUnlock = gate.unlocked === true;
+    if(!withinDeadline) return;
+    if(blockedByUnlock) return;
+
+    const todayKey = localDateKey();
+    const data = loadAll();
+    const day = ensureDay(data, todayKey);
+
+    const bonusName = "Morning Gate Bonus";
+    const exists = day.quests.some(q => normQuestName(q.questName).toLowerCase() === bonusName.toLowerCase());
+    if(exists){
+      gate.bonusGranted = true;
+      saveGate();
       return;
     }
-    if(!gateCfg.enabled){
-      el.gatePageHint.textContent = "ตั้งแล้ว • เปิด ON เพื่อใช้งาน Morning Gate";
-      return;
-    }
-    if(canEditTriggerNow()){
-      el.gatePageHint.textContent = `ON • เปลี่ยน Trigger ได้ (จะล็อก ${GATE_RULES.lockDays} วันหลังตั้ง)`;
-    }else{
-      const ms = (gateCfg.lockedUntil || 0) - Date.now();
-      el.gatePageHint.textContent = `ON • Locked • เปลี่ยนได้อีก ${msToHuman(ms)}`;
-    }
-    if(gateCfg.effectiveFrom && localDateKey() < gateCfg.effectiveFrom){
-      el.gatePageHint.textContent += ` • เริ่มใช้ ${gateCfg.effectiveFrom}`;
-    }
+
+    pushUndoSnapshot();
+
+    const entry = {
+      ts: Date.now(),
+      dateKey: todayKey,
+      category: "Connection",
+      questName: bonusName,
+      minutesSpent: 0,
+      baseMinutesUsed: 0,
+      baseScore: 0,
+      qualityBonus: GATE_RULES.bonusPoints,
+      questScore: GATE_RULES.bonusPoints,
+      notes: `Auto Bonus: PASS within deadline • Trigger ${gateCfg.triggerHHMM} • Limit ${GATE_RULES.limitMin}m`
+    };
+
+    day.quests.push(entry);
+    recalcDayTotal(day);
+    saveAll(data);
+
+    gate.bonusGranted = true;
+    saveGate();
+
+    updateStreakAfterChange();
+    updateUI();
   }
-}
+  function gateCheckFirstQuestQualify(){
+    if(!isGateActiveToday()) return;
+    if(gate.passed) return;
+    if(!gate.firstQuestStartAt) return;
+    if(state.status !== "running") return;
 
-/* old pill text (top right) */
-function renderGateTogglePill(){
-  if(!el.gateToggleBtn) return;
-  const canOn = !!gateCfg.triggerHHMM;
-  const onNow = gateCfg.enabled && canOn;
-  el.gateToggleBtn.textContent = onNow ? "ON" : "OFF";
-  el.gateToggleBtn.classList.toggle("on", onNow);
-  el.gateToggleBtn.disabled = (state.status !== "idle"); // still lock while running
-}
+    const ms = computeElapsedMs();
+    if(ms >= GATE_RULES.qualifyMin * 60000){
+      gate.passed = true;
+      gate.locked = false;
+      gate.unlocked = false;
+      gate.doneBannerUntil = Date.now() + 2000;
+      saveGate();
+      gateGrantBonusIfEligible();
 
-/* master UX (cover/topbar) */
-function renderGateUX(){
-  renderGateCoverDisplay();
-
-  if(!gateCfg.enabled || !gateCfg.triggerHHMM || !isGateActiveToday()){
-    hideGateCover();
-    hideGateTopBar();
-
-    if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = (!gateCfg.triggerHHMM ? "STATUS: NOT SET" : "STATUS: OFF");
-    if(el.gateCoverTime) el.gateCoverTime.textContent = (!gateCfg.triggerHHMM ? "--.--" : "OFF");
-    if(el.gateCoverHint){
-      el.gateCoverHint.innerHTML = (!gateCfg.triggerHHMM)
-        ? `ยังไม่ตั้ง Trigger • ไปที่ปุ่ม Morning Gate ขวาบนเพื่อเข้าไปตั้ง`
-        : `Gate ปิดอยู่`;
-    }
-    return;
-  }
-
-  if(isFirstQuestAlreadyDoneToday() || gate.passed){
-    hideGateCover();
-
-    if(gate.doneBannerUntil && Date.now() < gate.doneBannerUntil){
-      showGateTopBar();
-      el.gateTopBar?.classList.add("done");
-      if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • DONE ✅";
-      if(el.gateTopSub) el.gateTopSub.textContent = `เควสแรกวิ่งครบ ${GATE_RULES.qualifyMin} นาทีแล้ว`;
-      if(el.gateTopTime) el.gateTopTime.textContent = "DONE";
-      if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "OK";
-    }else{
-      hideGateTopBar();
-    }
-
-    if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: PASS";
-    if(el.gateCoverTime) el.gateCoverTime.textContent = "DONE";
-    if(el.gateCoverHint) el.gateCoverHint.innerHTML = `PASS แล้ว • โบนัสจะให้ตามเงื่อนไขอัตโนมัติ`;
-    rqShowIfEligible();
-    return;
-  }
-
-  if(!gateIsWorldActiveNow()){
-    hideGateCover();
-    hideGateTopBar();
-
-    if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: WAIT";
-    const start = todayAtHHMM(gateCfg.triggerHHMM);
-    if(start && el.gateCoverTime && el.gateCoverHint){
-      const hh = String(start.getHours()).padStart(2,"0");
-      const mm = String(start.getMinutes()).padStart(2,"0");
-      el.gateCoverTime.textContent = `${hh}:${mm}`;
-      el.gateCoverHint.innerHTML = `Gate จะเริ่มบังคับเมื่อถึง <b>${gateCfg.triggerHHMM}</b>`;
-    }else{
-      if(el.gateCoverTime) el.gateCoverTime.textContent = "--:--";
-      if(el.gateCoverHint) el.gateCoverHint.innerHTML = `Trigger ไม่ถูกต้อง`;
-    }
-    return;
-  }
-
-  if(!gate.startedAt){
-    if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: READY";
-    if(el.gateCoverTime) el.gateCoverTime.textContent = "--:--";
-    if(el.gateCoverKicker){
-      el.gateCoverKicker.innerHTML =
-        `ถึง Trigger แล้ว: <b>${gateCfg.triggerHHMM}</b><br>` +
-        `กดเริ่ม Gate เพื่อเริ่มนับถอยหลัง และเริ่มเควสแรกให้ทัน`;
-    }
-    if(el.gateCoverHint){
-      el.gateCoverHint.innerHTML =
-        `เป้าคือ <b>Start เควสแรก</b> ให้ทันก่อนหมดเวลา<br>` +
-        `PASS เมื่อเควสแรกวิ่งครบ <b>${GATE_RULES.qualifyMin} นาที</b>`;
-    }
-    showGateCover();
-    hideGateTopBar();
-    return;
-  }
-
-  showGateTopBar();
-  hideGateCover();
-  el.gateTopBar?.classList.remove("done");
-
-  if(gate.locked && !gate.unlocked){
-    if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • LOCKED ❌";
-    if(el.gateTopSub) el.gateTopSub.textContent = "ต้อง Unlock ก่อนถึงจะ Start เควสได้ (โบนัสจะโดนตัด)";
-    if(el.gateTopTime) el.gateTopTime.textContent = "LOCK";
-    if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Unlock";
-    return;
-  }
-
-  if(gate.unlocked){
-    if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • Unlocked ✅";
-    if(el.gateTopSub) el.gateTopSub.textContent = "เริ่มเควสได้แล้ว (เหตุผลจะติดใน Notes)";
-    if(el.gateTopTime) el.gateTopTime.textContent = "OK";
-    if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Gate";
-    return;
-  }
-
-  const left = gateTimeLeftSec();
-  if(el.gateTopTime) el.gateTopTime.textContent = formatMMSS(left);
-  if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • Running";
-  if(el.gateTopSub) el.gateTopSub.textContent = "เริ่มเควสแรกให้ทันก่อนหมดเวลา";
-  if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Gate";
-}
-
-/* =========================
-  UI HELPERS
-========================= */
-function setReportVisible(v){
-  if(el.reportCard) el.reportCard.style.display = v ? "block" : "none";
-  if(el.reportHiddenHint) el.reportHiddenHint.style.display = v ? "none" : "block";
-}
-function updateStatusPill(){
-  const map = {
-    idle: "Idle",
-    running: "Running",
-    paused: "Paused",
-    stopped: "Stopped (report pending)",
-  };
-  if(!el.statusPill) return;
-  el.statusPill.innerHTML = `Status: <b>${map[state.status] || "Idle"}</b>`;
-}
-function computeElapsedMs(now=Date.now()){
-  if(state.status==="running" && state.startTs) return state.elapsedBefore + (now - state.startTs);
-  return state.elapsedBefore;
-}
-function renderTimer(){
-  if(!el.timerText) return;
-  const ms = (state.status==="stopped") ? state.lastElapsedMs : computeElapsedMs();
-  el.timerText.textContent = formatHMS(ms);
-
-  if(!el.timerHint) return;
-  if(state.status==="idle") el.timerHint.textContent = "เลือกเควสแล้วกด Start";
-  else if(state.status==="running") el.timerHint.textContent = `กำลังจับเวลา • ${state.selectedCategory} • ${state.startDateKey}`;
-  else if(state.status==="paused") el.timerHint.textContent = "Paused • Resume หรือ Stop";
-  else el.timerHint.textContent = "Stopped • ส่ง Report เพื่อบันทึกคะแนน";
-}
-function showTimerWarn(msg){
-  if(!el.timerWarn) return;
-  el.timerWarn.style.display="block";
-  el.timerWarn.textContent=msg;
-  setTimeout(()=>{ if(el.timerWarn){ el.timerWarn.style.display="none"; el.timerWarn.textContent=""; } }, 2300);
-}
-function showNameWarn(msg){
-  if(!el.nameWarn) return;
-  el.nameWarn.style.display="block";
-  el.nameWarn.textContent=msg;
-}
-function clearNameWarn(){
-  if(!el.nameWarn) return;
-  el.nameWarn.style.display="none";
-  el.nameWarn.textContent="";
-}
-function clearSubmitMessages(){
-  if(el.submitOk){ el.submitOk.style.display="none"; el.submitOk.textContent=""; }
-  if(el.submitWarn){ el.submitWarn.style.display="none"; el.submitWarn.textContent=""; }
-}
-function applyBonusRule(minutes){
-  if(!el.qualityBonus || !el.bonusRuleHint) return;
-  if(minutes < RULES.bonusMinMinutes){
-    el.qualityBonus.value = "0";
-    el.qualityBonus.disabled = true;
-    el.bonusRuleHint.textContent = `Bonus lock (ต้อง ≥ ${RULES.bonusMinMinutes} นาที)`;
-  }else{
-    el.qualityBonus.disabled = false;
-    el.bonusRuleHint.textContent = `Bonus ใช้ได้ (เวลา ≥ ${RULES.bonusMinMinutes} นาที)`;
-  }
-}
-function updateCapHint(dateKey, questName){
-  if(!el.capHint) return;
-  const used = calcQuestBaseMinutesUsed(dateKey, questName);
-  const remaining = Math.max(0, RULES.baseCapPerQuestNamePerDay - used);
-  el.capHint.textContent =
-    `Cap ต่อชื่อเควส/วัน = ${RULES.baseCapPerQuestNamePerDay} นาที • วันนี้ "${normQuestName(questName)}" ใช้ base แล้ว ${used} นาที • เหลือ ${remaining} นาที`;
-}
-
-/* Cutting UI */
-function readCutMinutes(){
-  if(!el.cutMinutes) return null;
-  const raw = Number(el.cutMinutes.value);
-  if(!Number.isFinite(raw)) return null;
-  const n = clamp(Math.floor(raw), 1, 360);
-  return n;
-}
-function renderCutUI(){
-  if(!el.cutWrap || !el.cutBody || !el.cutChip) return;
-  el.cutWrap.classList.toggle("open", !!state.cutEnabled);
-  el.cutBody.style.display = state.cutEnabled ? "block" : "none";
-  if(!state.cutEnabled){
-    el.cutChip.textContent = "OFF";
-  }else{
-    el.cutChip.textContent = state.cutMinutes ? `${state.cutMinutes}m` : "ON";
-  }
-}
-
-function renderControls(){
-  if(el.stopBtn)   el.stopBtn.disabled   = !(state.status==="running" || state.status==="paused");
-  if(el.pauseBtn)  el.pauseBtn.disabled  = state.status !== "running";
-  if(el.resumeBtn) el.resumeBtn.disabled = state.status !== "paused";
-
-  const lock = state.status !== "idle";
-  if(el.category) el.category.disabled = lock;
-  if(el.questName) el.questName.disabled = lock;
-
-  if(state.status==="idle"){
-    if(el.category) el.category.value = state.selectedCategory || "Learning";
-    if(el.questName) el.questName.value = state.questName || "";
-    if(el.cutMinutes) el.cutMinutes.value = state.cutMinutes ? String(state.cutMinutes) : "";
-    if(el.cutMode) el.cutMode.value = state.cutMode || "hard";
-  }
-
-  renderCutUI();
-  gateEnforceStartButton();
-  renderGateTogglePill();
-}
-
-function renderToday(){
-  const todayKey = localDateKey();
-  if(el.todayText) el.todayText.textContent = `Today: ${todayKey}`;
-
-  const total = calcDayTotal(todayKey);
-  if(el.todayTotal) el.todayTotal.textContent = total.toFixed(1);
-  if(el.progressFill) el.progressFill.style.width = `${Math.max(0,Math.min(100,total))}%`;
-
-  const data = loadAll();
-  const day = data[todayKey] || { totalQps:0, quests:[] };
-  const log = (day.quests||[]).slice().reverse();
-
-  if(!el.todayList) return;
-
-  if(log.length===0){
-    el.todayList.innerHTML = `<div class="hint">ยังไม่มีรายงานวันนี้</div>`;
-    return;
-  }
-
-  el.todayList.innerHTML = log.map(item=>{
-    const name = normQuestName(item.questName) ? normQuestName(item.questName) : "(no name)";
-    const mins = Number(item.minutesSpent||0);
-    const baseMins = Number(item.baseMinutesUsed||0);
-    const baseScore = Number(item.baseScore||0);
-    const bonus = Number(item.qualityBonus||0);
-    const questScore = Number(item.questScore||0);
-    const capNote = (baseMins < mins) ? ` • cap: counted ${baseMins}/${mins} min` : "";
-    return `
-      <div class="item">
-        <div class="itemTop">
-          <div class="itemName">${escapeHtml(name)}</div>
-          <div class="itemScore">+${round1(questScore).toFixed(1)}</div>
-        </div>
-        <div class="itemMeta">${escapeHtml(item.category)} • ${mins} min • base ${round1(baseScore).toFixed(1)} + bonus ${bonus}${capNote}</div>
-        ${item.notes ? `<div class="itemMeta" style="margin-top:8px;">📝 ${escapeHtml(item.notes)}</div>` : ``}
-      </div>
-    `;
-  }).join("");
-}
-
-function updateUI(){
-  updateStatusPill();
-  renderTimer();
-  renderControls();
-  renderGateUX();
-  renderToday();
-  setReportVisible(state.status==="stopped");
-  renderUndoRedo();
-  renderGatePageUI(); // if gate page exists
-}
-
-/* =========================
-  RANDOM QUEST (stable implementation)
-========================= */
-const RQ_GEN = {
-  durations: {
-    low:  { min:10, max:20 },
-    mid:  { min:25, max:40 },
-    high: { min:45, max:70 },
-  },
-  physical: {
-    low:  ["เดิน", "ยืดเหยียด", "mobility", "วิ่งเบา", "คาร์ดิโอเบา"],
-    mid:  ["อก", "หลัง", "ไหล่", "แขน", "ขา", "ท้อง", "คาร์ดิโอ"],
-    high: ["Upper (อก+ไหล่)", "Pull (หลัง+แขน)", "Legs (ขา)", "Full body", "คาร์ดิโอหนัก + ท้อง"]
-  },
-  workActions: [
-    "ลงมือทำ Focus",
-    "แก้/ปรับ Focus",
-    "วางแผน Focus",
-    "ส่งงาน/โพสต์ Focus",
-    "หาลูกค้า/ติดต่อ Focus",
-    "สรุปบทเรียน Focus"
-  ],
-  learningActivities: {
-    language: [
-      { act:"ท่องศัพท์", tail:"แต่ง 5 ประโยค" },
-      { act:"อ่านเนื้อหา", tail:"เขียนใจความ 5 bullet" },
-      { act:"ฟัง/ดูคลิป", tail:"สรุป 5 bullet" },
-      { act:"ฝึกใช้จริง", tail:"แต่ง 8 ประโยค" },
-      { act:"ทบทวน", tail:"สรุปสิ่งที่พลาด 3 ข้อ" },
-    ],
-    math: [
-      { act:"ทำโจทย์", tail:"Error log 3 ข้อ" },
-      { act:"ทบทวนสูตร", tail:"สรุปสูตร + ตัวอย่าง 2 ข้อ" },
-      { act:"แก้โจทย์ชุด", tail:"ตรวจคำตอบ + สรุปจุดพลาด" },
-    ],
-    generic: [
-      { act:"อ่านเนื้อหา", tail:"เขียนใจความ 5 bullet" },
-      { act:"ดูคลิป", tail:"สรุป 5 bullet" },
-      { act:"ทบทวน", tail:"สรุป 5 bullet" },
-      { act:"จดสรุป", tail:"ย่อ 5 บรรทัด" },
-    ],
-  },
-  kw: {
-    language: ["eng","english","chinese","japan","korea","vocab","sentence","reading","listening","speaking","grammar","汉语","中文","ภาษาอังกฤษ","ภาษาจีน","ศัพท์","ประโยค","อ่าน","ฟัง","พูด","แกรมม่า"],
-    math: ["math","algebra","equation","calculus","stats","logic","dp","สมการ","สถิติ","ฟังก์ชัน","ตรรกะ","โจทย์","พิสูจน์"],
-  },
-  fallbackPool: {
-    low: [
-      { category:"Learning", name:"Learning • อ่าน/สรุป", tail:"สรุป 5 bullet" },
-      { category:"Physical", name:"Physical • เดิน", tail:"" },
-      { category:"Work/Project", name:"Work • จัดระบบ", tail:"Focus" },
-    ],
-    mid: [
-      { category:"Learning", name:"Learning • ทบทวน", tail:"เขียนใจความ 5 bullet" },
-      { category:"Physical", name:"Physical • ท้อง", tail:"" },
-      { category:"Work/Project", name:"Work • ลงมือทำ", tail:"Focus" },
-    ],
-    high: [
-      { category:"Work/Project", name:"Work • Ship 1 อย่าง", tail:"Focus" },
-      { category:"Physical", name:"Physical • Full body", tail:"" },
-      { category:"Learning", name:"Learning • ทำชุด", tail:"สรุปจุดพลาด 3 ข้อ" },
-    ]
-  }
-};
-
-function rqRandInt(min, max){
-  min = Math.ceil(min); max = Math.floor(max);
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-function rqPickOne(arr){
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function rqHash(str){
-  let h = 2166136261;
-  for(let i=0;i<str.length;i++){
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return "H" + (h >>> 0).toString(36);
-}
-function rqExtractDomainFromQuestName(name){
-  const n = normQuestName(name);
-  if(!n) return "";
-  const cut = n.split("•")[0].split("-")[0].split("|")[0].trim();
-  return cut.replace(/\b(\d+)\s*(min|m)\b/ig,"").trim();
-}
-function rqClassifyLearningType(domain){
-  const d = (domain||"").toLowerCase();
-  const has = (list)=> list.some(k => d.includes(k.toLowerCase()));
-  if(has(RQ_GEN.kw.language)) return "language";
-  if(has(RQ_GEN.kw.math)) return "math";
-  return "generic";
-}
-function rqGetDomainsFromHistory(category, lookbackDays = RQ_RULES.lookbackDays){
-  const data = loadAll();
-  const today = localDateKey();
-  const freq = new Map();
-
-  for(let i=0;i<lookbackDays;i++){
-    const dk = addDays(today, -i);
-    const day = data[dk];
-    if(!day?.quests) continue;
-    for(const q of day.quests){
-      if(q.category !== category) continue;
-      const dom = rqExtractDomainFromQuestName(q.questName);
-      if(!dom) continue;
-      const key = dom.toLowerCase();
-      freq.set(key, { dom, n: (freq.get(key)?.n || 0) + 1 });
+      // PASS แล้วโชว์ Dice
+      rqShowIfEligible();
     }
   }
-  const sorted = [...freq.values()].sort((a,b)=> b.n - a.n);
-  return sorted.map(x => x.dom);
-}
+  function renderGateCoverDisplay(){
+    if(el.gateTriggerDisplay) el.gateTriggerDisplay.textContent = (gateCfg.triggerHHMM ? gateCfg.triggerHHMM : "--.--");
+    if(el.gateLimitDisplay) el.gateLimitDisplay.textContent = `${GATE_RULES.limitMin}m`;
+    if(el.gateQualifyDisplay) el.gateQualifyDisplay.textContent = `${GATE_RULES.qualifyMin}m`;
+  }
 
-/* 7d stats for balancing */
-function rqBuild7dStats(){
-  const data = loadAll();
-  const today = localDateKey();
-  const cats = ["Learning","Work/Project","Physical"];
-  const stat = {};
-  cats.forEach(c=> stat[c]={ minutes:0, count:0 });
-
-  for(let i=0;i<7;i++){
-    const dk = addDays(today, -i);
-    const day = data[dk];
-    if(!day?.quests) continue;
-    for(const q of day.quests){
-      if(!stat[q.category]) continue;
-      stat[q.category].minutes += Number(q.minutesSpent||0);
-      stat[q.category].count += 1;
+  /* =========================
+    GATE PAGE v2 (NEW)
+    - Open ONLY from #gateToggleBtn
+    - Toggle ON/OFF + Set Trigger inside this page
+  ========================= */
+  function openGatePage(){
+    if(!el.gatePage) return;
+    el.gatePage.classList.add("show");
+    el.gatePage.setAttribute("aria-hidden","false");
+    document.body.style.overflow = "hidden";
+    renderGatePageUI();
+  }
+  function closeGatePage(){
+    if(!el.gatePage) return;
+    el.gatePage.classList.remove("show");
+    el.gatePage.setAttribute("aria-hidden","true");
+    document.body.style.overflow = "";
+  }
+  function renderGatePageUI(){
+    // optional UI: if not present, just ignore
+    if(el.gatePageEnableBtn){
+      const canOn = !!gateCfg.triggerHHMM;
+      const onNow = gateCfg.enabled && canOn;
+      el.gatePageEnableBtn.textContent = onNow ? "ON" : "OFF";
+      el.gatePageEnableBtn.classList.toggle("on", onNow);
+      el.gatePageEnableBtn.disabled = (state.status !== "idle") || (!canOn && gateCfg.enabled);
     }
-  }
-  return stat;
-}
-function rqChooseCategoryByBalance(){
-  const stats = rqBuild7dStats();
-  const cats = ["Learning","Work/Project","Physical"];
-  const maxMin = Math.max(...cats.map(c => stats[c]?.minutes || 0), 1);
 
-  const scored = cats.map(c=>{
-    const m = stats[c]?.minutes || 0;
-    const w = 1 + (1 - (m / maxMin)); // 1..2
-    return { c, w };
-  });
+    if(el.gatePageTriggerInput){
+      el.gatePageTriggerInput.value = gateCfg.triggerHHMM || "";
+      el.gatePageTriggerInput.disabled = (state.status !== "idle") || (!canEditTriggerNow() && gateCfg.enabled);
+    }
 
-  const sum = scored.reduce((a,x)=>a+x.w,0);
-  let r = Math.random()*sum;
-  for(const it of scored){
-    r -= it.w;
-    if(r<=0) return it.c;
-  }
-  return scored[0].c;
-}
-
-/* done ids per day */
-function rqDoneKey(){ return KEY_RQ_DONE_PREFIX + localDateKey(); }
-function rqGetDoneSet(){
-  try{
-    const raw = localStorage.getItem(rqDoneKey());
-    const arr = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(arr) ? arr : []);
-  }catch{
-    return new Set();
-  }
-}
-function rqSaveDoneSet(set){
-  localStorage.setItem(rqDoneKey(), JSON.stringify([...set]));
-}
-function rqMarkDone(id){
-  const set = rqGetDoneSet();
-  set.add(id);
-  rqSaveDoneSet(set);
-}
-
-/* cooldown */
-function rqCooldownUntil(){
-  const v = Number(localStorage.getItem(KEY_RQ_CD) || 0);
-  return Number.isFinite(v) ? v : 0;
-}
-function rqIsCooldown(){
-  return Date.now() < rqCooldownUntil();
-}
-function rqCooldownLeft(){
-  const ms = rqCooldownUntil() - Date.now();
-  if(ms<=0) return "00:00";
-  return formatMMSS(Math.ceil(ms/1000));
-}
-function rqSetCooldown(){
-  const until = Date.now() + RQ_RULES.cooldownMin*60000;
-  localStorage.setItem(KEY_RQ_CD, String(until));
-}
-
-/* selected */
-function rqGetSelected(){
-  try{
-    const raw = localStorage.getItem(KEY_RQ_SEL);
-    const obj = raw ? JSON.parse(raw) : null;
-    if(!obj || typeof obj!=="object") return null;
-    if(!obj.id || !obj.name) return null;
-    return obj;
-  }catch{
-    return null;
-  }
-}
-function rqSetSelected(q){
-  localStorage.setItem(KEY_RQ_SEL, JSON.stringify(q));
-}
-function rqClearSelected(){
-  localStorage.removeItem(KEY_RQ_SEL);
-}
-
-/* build quest */
-function rqBuildQuestFromGrammar(category, energy){
-  const dcfg = RQ_GEN.durations[energy] || RQ_GEN.durations.low;
-  const duration = rqRandInt(dcfg.min, dcfg.max);
-
-  if(category === "Physical"){
-    const pick = rqPickOne(RQ_GEN.physical[energy] || RQ_GEN.physical.low);
-    const name = `Physical • ${pick}`;
-    const sig = `${category}|${name}|${duration}`;
-    return { id: rqHash(sig), category, duration, energy, name };
-  }
-
-  if(category === "Learning"){
-    const domains = rqGetDomainsFromHistory("Learning");
-    const domain = domains[0] || "Learning";
-    const type = rqClassifyLearningType(domain);
-    const act = rqPickOne(RQ_GEN.learningActivities[type] || RQ_GEN.learningActivities.generic);
-    const name = `${domain} • ${act.act}${act.tail ? " + " + act.tail : ""}`;
-    const sig = `${category}|${name}|${duration}`;
-    return { id: rqHash(sig), category, duration, energy, name };
-  }
-
-  if(category === "Work/Project"){
-    const domains = rqGetDomainsFromHistory("Work/Project");
-    const domain = domains[0] || "Work";
-    const action = rqPickOne(RQ_GEN.workActions);
-    const name = `${domain} • ${action}`;
-    const sig = `${category}|${name}|${duration}`;
-    return { id: rqHash(sig), category, duration, energy, name };
-  }
-
-  if(category === "Connection"){
-    const actions = ["ทักคนสำคัญ", "อัปเดตงานให้คนเกี่ยวข้อง", "ขอ feedback", "ตอบแชทค้าง"];
-    const name = `Connection • ${rqPickOne(actions)} Focus`;
-    const sig = `${category}|${name}|${duration}`;
-    return { id: rqHash(sig), category, duration, energy, name };
-  }
-
-  const fb = rqPickOne(RQ_GEN.fallbackPool[energy] || RQ_GEN.fallbackPool.low);
-  const name = `${fb.name}${fb.tail ? " + " + fb.tail : ""}`;
-  const sig = `${fb.category}|${name}|${duration}`;
-  return { id: rqHash(sig), category: fb.category, duration, energy, name };
-}
-
-function rqPick(energy){
-  const category = rqChooseCategoryByBalance();
-  const done = rqGetDoneSet();
-
-  for(let i=0;i<8;i++){
-    const q = rqBuildQuestFromGrammar(category, energy);
-    if(!done.has(q.id)) return { ok:true, quest:q };
-  }
-
-  const fb = rqPickOne(RQ_GEN.fallbackPool[energy] || RQ_GEN.fallbackPool.low);
-  const duration = rqRandInt(RQ_GEN.durations[energy].min, RQ_GEN.durations[energy].max);
-  const name = `${fb.name}${fb.tail ? " + " + fb.tail : ""}`;
-  const q = { id: rqHash(`${fb.category}|${name}|${duration}`), category: fb.category, duration, energy, name };
-  if(!done.has(q.id)) return { ok:true, quest:q };
-
-  return { ok:false, reason:"NO_CANDIDATES" };
-}
-
-function rqOpenModal(){
-  if(!el.rqOverlay) return;
-  if(el.diceFab && el.diceFab.style.display === "none") return;
-  el.rqOverlay.classList.add("show");
-  el.rqOverlay.setAttribute("aria-hidden","false");
-  document.body.style.overflow = "hidden";
-}
-function rqCloseModal(){
-  if(!el.rqOverlay) return;
-  el.rqOverlay.classList.remove("show");
-  el.rqOverlay.setAttribute("aria-hidden","true");
-  document.body.style.overflow = "";
-}
-function rqRenderSelectedToModal(){
-  const q = rqGetSelected();
-  if(!q){
-    el.rqResult2?.classList.remove("show");
-    if(el.rqBigName) el.rqBigName.textContent = "—";
-    if(el.rqMeta2) el.rqMeta2.textContent = "—";
-    return;
-  }
-  el.rqResult2?.classList.add("show");
-  if(el.rqBigName) el.rqBigName.textContent = q.name;
-  if(el.rqMeta2) el.rqMeta2.textContent = `${q.category} • ${q.duration} min • ${String(q.energy).toUpperCase()}`;
-}
-function rqShowIfEligible(){
-  if(!el.diceFab || !el.diceBtn || !el.diceCd) return;
-
-  el.diceFab.style.display = "flex";
-
-  const blockedByGate = (isGateActiveToday() && !gate.passed && !isFirstQuestAlreadyDoneToday());
-  el.diceBtn.disabled = blockedByGate || rqIsCooldown();
-  if(blockedByGate){
-    el.diceCd.classList.add("show");
-    el.diceCd.innerHTML = `ผ่าน Gate ก่อนถึงจะสุ่มได้`;
-  }else{
-    rqTickUI();
-  }
-}
-function rqTickUI(){
-  if(!el.diceBtn || !el.diceCd) return;
-
-  const locked = rqIsCooldown();
-  if(locked){
-    el.diceCd.classList.add("show");
-    el.diceCd.innerHTML = `Cooldown: <b>${rqCooldownLeft()}</b>`;
-    el.diceBtn.classList.remove("dicePulse");
-    el.diceBtn.disabled = true;
-  }else{
-    el.diceCd.classList.remove("show");
-    el.diceBtn.classList.add("dicePulse");
-    // disabled = gate block handled by rqShowIfEligible
-  }
-
-  if(el.rqPickLow)  el.rqPickLow.disabled  = locked;
-  if(el.rqPickMid)  el.rqPickMid.disabled  = locked;
-  if(el.rqPickHigh) el.rqPickHigh.disabled = locked;
-
-  rqRenderSelectedToModal();
-}
-function rqHandleRandom(energy){
-  if(state.status !== "idle"){
-    showTimerWarn("สุ่มได้ตอน Idle เท่านั้น");
-    return;
-  }
-  if(rqIsCooldown()){
-    rqTickUI();
-    showTimerWarn("ติด cooldown");
-    return;
-  }
-
-  el.diceBtn?.classList.add("rqSpin");
-  setTimeout(()=> el.diceBtn?.classList.remove("rqSpin"), 560);
-
-  const res = rqPick(energy);
-  if(!res.ok){
-    showTimerWarn("วันนี้สุ่มหมดแล้ว (พลังงานนี้)");
-    return;
-  }
-
-  rqSetSelected(res.quest);
-  rqSetCooldown();
-  rqTickUI();
-}
-function rqStartNow(){
-  if(state.status !== "idle"){
-    showTimerWarn("ต้องอยู่ Idle ก่อน");
-    return;
-  }
-  const q = rqGetSelected();
-  if(!q){
-    showTimerWarn("ยังไม่ได้สุ่มเควส");
-    return;
-  }
-
-  if(el.category) el.category.value = q.category;
-  if(el.questName) el.questName.value = q.name;
-  state.selectedCategory = q.category;
-  state.questName = q.name;
-
-  state.cutEnabled = true;
-  state.cutMinutes = q.duration;
-  if(el.cutMinutes) el.cutMinutes.value = String(q.duration);
-  if(el.cutMode) el.cutMode.value = "hard";
-  state.cutMode = "hard";
-
-  saveState();
-  renderCutUI();
-  clearNameWarn();
-
-  startQuest();
-
-  if(state.status === "running"){
-    rqMarkDone(q.id);
-  }
-}
-
-/* =========================
-  TIMER TICK
-========================= */
-function startTick(){
-  if(tickHandle) clearInterval(tickHandle);
-  tickHandle = setInterval(()=>{
-    renderTimer();
-
-    // auto stop if cutting enabled
-    if(state.status === "running" && state.cutEnabled && state.cutMinutes){
-      const ms = computeElapsedMs();
-      const targetMs = state.cutMinutes * 60000;
-
-      if(ms >= targetMs){
-        if(state.cutMode === "soft"){
-          if(!state.softWarned){
-            state.softWarned = true;
-            state.softDeadlineTs = Date.now() + 10000;
-            saveState();
-            showTimerWarn(`ครบ ${state.cutMinutes} นาทีแล้ว — จะหยุดอัตโนมัติใน 10 วิ`);
-            return;
-          }
-          if(Date.now() < state.softDeadlineTs) return;
-        }
-
-        state.softWarned = false;
-        state.softDeadlineTs = 0;
-
-        state.elapsedBefore = targetMs;
-        state.startTs = null;
-        saveState();
-
-        showTimerWarn(`Stop อัตโนมัติ ✅ (${state.cutMinutes} นาที)`);
-        stopQuest();
+    if(el.gatePageHint){
+      if(!gateCfg.triggerHHMM){
+        el.gatePageHint.textContent = "ยังไม่ตั้ง Trigger • ตั้งเวลาก่อน แล้วค่อยเปิด ON";
+        return;
+      }
+      if(!gateCfg.enabled){
+        el.gatePageHint.textContent = "ตั้งแล้ว • เปิด ON เพื่อใช้งาน Morning Gate";
+        return;
+      }
+      if(canEditTriggerNow()){
+        el.gatePageHint.textContent = `ON • เปลี่ยน Trigger ได้ (จะล็อก ${GATE_RULES.lockDays} วันหลังตั้ง)`;
+      }else{
+        const ms = (gateCfg.lockedUntil || 0) - Date.now();
+        el.gatePageHint.textContent = `ON • Locked • เปลี่ยนได้อีก ${msToHuman(ms)}`;
+      }
+      if(gateCfg.effectiveFrom && localDateKey() < gateCfg.effectiveFrom){
+        el.gatePageHint.textContent += ` • เริ่มใช้ ${gateCfg.effectiveFrom}`;
       }
     }
-
-    // Gate tick
-    syncGateRuntimeFromCfg();
-    gateMaybeLock();
-    gateCheckFirstQuestQualify();
-    gateEnforceStartButton();
-    renderGateUX();
-
-    // Random tick
-    rqTickUI();
-  }, 250);
-}
-
-/* =========================
-  ACTIONS
-========================= */
-function validateBeforeStart(){
-  clearNameWarn();
-  const todayKey = localDateKey();
-  const qn = normQuestName(el.questName?.value);
-
-  if(!qn){
-    showNameWarn("ต้องใส่ Quest Name (ห้ามปล่อยว่าง)");
-    return false;
   }
-  if(isQuestNameDuplicateToday(todayKey, qn)){
-    showNameWarn("ชื่อนี้มีแล้วในวันนี้ ❌ (ห้ามซ้ำ) — เปลี่ยนชื่อใหม่");
-    return false;
+
+  /* old pill text (top right) */
+  function renderGateTogglePill(){
+    if(!el.gateToggleBtn) return;
+    const canOn = !!gateCfg.triggerHHMM;
+    const onNow = gateCfg.enabled && canOn;
+    el.gateToggleBtn.textContent = onNow ? "ON" : "OFF";
+    el.gateToggleBtn.classList.toggle("on", onNow);
+    el.gateToggleBtn.disabled = (state.status !== "idle"); // still lock while running
   }
-  return true;
-}
 
-function startQuest(){
-  if(state.status !== "idle") return;
+  /* master UX (cover/topbar) */
+  function renderGateUX(){
+    renderGateCoverDisplay();
 
-  if(!gateCanStartQuest()){
-    showTimerWarn("ติด Morning Gate");
-    if(isGateActiveToday() && gateIsWorldActiveNow() && !gate.startedAt){
+    if(!gateCfg.enabled || !gateCfg.triggerHHMM || !isGateActiveToday()){
+      hideGateCover();
+      hideGateTopBar();
+
+      if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = (!gateCfg.triggerHHMM ? "STATUS: NOT SET" : "STATUS: OFF");
+      if(el.gateCoverTime) el.gateCoverTime.textContent = (!gateCfg.triggerHHMM ? "--.--" : "OFF");
+      if(el.gateCoverHint){
+        el.gateCoverHint.innerHTML = (!gateCfg.triggerHHMM)
+          ? `ยังไม่ตั้ง Trigger • ไปที่ปุ่ม Morning Gate ขวาบนเพื่อเข้าไปตั้ง`
+          : `Gate ปิดอยู่`;
+      }
+      return;
+    }
+
+    if(isFirstQuestAlreadyDoneToday() || gate.passed){
+      hideGateCover();
+
+      if(gate.doneBannerUntil && Date.now() < gate.doneBannerUntil){
+        showGateTopBar();
+        el.gateTopBar?.classList.add("done");
+        if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • DONE ✅";
+        if(el.gateTopSub) el.gateTopSub.textContent = `เควสแรกวิ่งครบ ${GATE_RULES.qualifyMin} นาทีแล้ว`;
+        if(el.gateTopTime) el.gateTopTime.textContent = "DONE";
+        if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "OK";
+      }else{
+        hideGateTopBar();
+      }
+
+      if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: PASS";
+      if(el.gateCoverTime) el.gateCoverTime.textContent = "DONE";
+      if(el.gateCoverHint) el.gateCoverHint.innerHTML = `PASS แล้ว • โบนัสจะให้ตามเงื่อนไขอัตโนมัติ`;
+      rqShowIfEligible();
+      return;
+    }
+
+    if(!gateIsWorldActiveNow()){
+      hideGateCover();
+      hideGateTopBar();
+
+      if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: WAIT";
+      const start = todayAtHHMM(gateCfg.triggerHHMM);
+      if(start && el.gateCoverTime && el.gateCoverHint){
+        const hh = String(start.getHours()).padStart(2,"0");
+        const mm = String(start.getMinutes()).padStart(2,"0");
+        el.gateCoverTime.textContent = `${hh}:${mm}`;
+        el.gateCoverHint.innerHTML = `Gate จะเริ่มบังคับเมื่อถึง <b>${gateCfg.triggerHHMM}</b>`;
+      }else{
+        if(el.gateCoverTime) el.gateCoverTime.textContent = "--:--";
+        if(el.gateCoverHint) el.gateCoverHint.innerHTML = `Trigger ไม่ถูกต้อง`;
+      }
+      return;
+    }
+
+    if(!gate.startedAt){
+      if(el.gateCoverStatusChip) el.gateCoverStatusChip.textContent = "STATUS: READY";
+      if(el.gateCoverTime) el.gateCoverTime.textContent = "--:--";
+      if(el.gateCoverKicker){
+        el.gateCoverKicker.innerHTML =
+          `ถึง Trigger แล้ว: <b>${gateCfg.triggerHHMM}</b><br>` +
+          `กดเริ่ม Gate เพื่อเริ่มนับถอยหลัง และเริ่มเควสแรกให้ทัน`;
+      }
+      if(el.gateCoverHint){
+        el.gateCoverHint.innerHTML =
+          `เป้าคือ <b>Start เควสแรก</b> ให้ทันก่อนหมดเวลา<br>` +
+          `PASS เมื่อเควสแรกวิ่งครบ <b>${GATE_RULES.qualifyMin} นาที</b>`;
+      }
       showGateCover();
-      renderGateUX();
+      hideGateTopBar();
+      return;
     }
-    return;
-  }
 
-  if(!validateBeforeStart()){
-    showTimerWarn("แก้ Quest Name ก่อน");
-    return;
-  }
+    showGateTopBar();
+    hideGateCover();
+    el.gateTopBar?.classList.remove("done");
 
-  state.status="running";
-  state.selectedCategory = el.category?.value || state.selectedCategory;
-  state.questName = normQuestName(el.questName?.value);
-  state.startDateKey = localDateKey();
-
-  state.startTs = Date.now();
-  state.elapsedBefore = 0;
-  state.lastElapsedMs = 0;
-
-  state.cutMinutes = state.cutEnabled ? readCutMinutes() : null;
-  state.cutMode = el.cutMode?.value || "hard";
-  state.softWarned = false;
-  state.softDeadlineTs = 0;
-
-  saveState();
-  clearSubmitMessages();
-  setReportVisible(false);
-  updateUI();
-
-  if(isGateActiveToday() && gateIsWorldActiveNow() && !gate.passed && !isFirstQuestAlreadyDoneToday()){
-    gate.firstQuestStartAt = Date.now();
-    saveGate();
-  }
-}
-
-function pauseQuest(){
-  if(state.status!=="running") return;
-  const now = Date.now();
-  state.elapsedBefore = computeElapsedMs(now);
-  state.startTs = null;
-  state.status = "paused";
-  state.softWarned = false;
-  state.softDeadlineTs = 0;
-  saveState();
-  updateUI();
-}
-
-function resumeQuest(){
-  if(state.status!=="paused") return;
-  state.status="running";
-  state.startTs=Date.now();
-  state.softWarned = false;
-  state.softDeadlineTs = 0;
-  saveState();
-  updateUI();
-}
-
-function stopQuest(){
-  if(!(state.status==="running" || state.status==="paused")) return;
-
-  const now = Date.now();
-  const elapsed = (state.status==="running") ? computeElapsedMs(now) : state.elapsedBefore;
-
-  state.status="stopped";
-  state.startTs=null;
-  state.elapsedBefore=elapsed;
-  state.lastElapsedMs=elapsed;
-  saveState();
-
-  const minutes = Math.max(0, Math.round(elapsed/60000));
-  if(el.reportMinutes) el.reportMinutes.value = String(minutes);
-  applyBonusRule(minutes);
-
-  const dateKey = state.startDateKey || localDateKey();
-  updateCapHint(dateKey, state.questName);
-
-  clearSubmitMessages();
-  setReportVisible(true);
-  updateUI();
-  scrollToId("sec-report");
-}
-
-function discardReport(){
-  state.status="idle";
-  state.startTs=null;
-  state.elapsedBefore=0;
-  state.lastElapsedMs=0;
-  state.startDateKey=null;
-
-  state.softWarned = false;
-  state.softDeadlineTs = 0;
-
-  saveState();
-  setReportVisible(false);
-  clearSubmitMessages();
-  updateUI();
-}
-
-function submitReport(){
-  clearSubmitMessages();
-
-  const minutes = Number(el.reportMinutes?.value);
-  if(!Number.isFinite(minutes) || minutes <= 0){
-    if(el.submitWarn){
-      el.submitWarn.style.display="block";
-      el.submitWarn.textContent="Minutes ต้อง > 0";
+    if(gate.locked && !gate.unlocked){
+      if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • LOCKED ❌";
+      if(el.gateTopSub) el.gateTopSub.textContent = "ต้อง Unlock ก่อนถึงจะ Start เควสได้ (โบนัสจะโดนตัด)";
+      if(el.gateTopTime) el.gateTopTime.textContent = "LOCK";
+      if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Unlock";
+      return;
     }
-    return;
-  }
 
-  applyBonusRule(minutes);
-  const bonus = el.qualityBonus?.disabled ? 0 : Number(el.qualityBonus?.value||0);
-
-  const dateKey = state.startDateKey || localDateKey();
-  const qn = normQuestName(state.questName);
-
-  if(isQuestNameDuplicateToday(dateKey, qn)){
-    if(el.submitWarn){
-      el.submitWarn.style.display="block";
-      el.submitWarn.textContent="ชื่อเควสซ้ำในวันนี้แล้ว — เปลี่ยนชื่อ";
+    if(gate.unlocked){
+      if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • Unlocked ✅";
+      if(el.gateTopSub) el.gateTopSub.textContent = "เริ่มเควสได้แล้ว (เหตุผลจะติดใน Notes)";
+      if(el.gateTopTime) el.gateTopTime.textContent = "OK";
+      if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Gate";
+      return;
     }
-    return;
+
+    const left = gateTimeLeftSec();
+    if(el.gateTopTime) el.gateTopTime.textContent = formatMMSS(left);
+    if(el.gateTopTitle) el.gateTopTitle.textContent = "Morning Gate • Running";
+    if(el.gateTopSub) el.gateTopSub.textContent = "เริ่มเควสแรกให้ทันก่อนหมดเวลา";
+    if(el.gateTopOpenBtn) el.gateTopOpenBtn.textContent = "Gate";
   }
 
-  const used = calcQuestBaseMinutesUsed(dateKey, qn);
-  const remaining = Math.max(0, RULES.baseCapPerQuestNamePerDay - used);
-  const baseMinutesUsed = Math.min(minutes, remaining);
+  /* =========================
+    UI HELPERS
+  ========================= */
+  function setReportVisible(v){
+    if(el.reportCard) el.reportCard.style.display = v ? "block" : "none";
+    if(el.reportHiddenHint) el.reportHiddenHint.style.display = v ? "none" : "block";
+  }
+  function updateStatusPill(){
+    const map = {
+      idle: "Idle",
+      running: "Running",
+      paused: "Paused",
+      stopped: "Stopped (report pending)",
+    };
+    if(!el.statusPill) return;
+    el.statusPill.innerHTML = `Status: <b>${map[state.status] || "Idle"}</b>`;
+  }
+  function computeElapsedMs(now=Date.now()){
+    if(state.status==="running" && state.startTs) return state.elapsedBefore + (now - state.startTs);
+    return state.elapsedBefore;
+  }
+  function renderTimer(){
+    if(!el.timerText) return;
+    const ms = (state.status==="stopped") ? state.lastElapsedMs : computeElapsedMs();
+    el.timerText.textContent = formatHMS(ms);
 
-  const baseScore = baseMinutesUsed * RULES.basePerMinute;
-  const questScore = baseScore + bonus;
-
-  pushUndoSnapshot();
-
-  const entry = {
-    ts: Date.now(),
-    dateKey,
-    category: state.selectedCategory,
-    questName: qn,
-    minutesSpent: minutes,
-    baseMinutesUsed,
-    baseScore: round1(baseScore),
-    qualityBonus: bonus,
-    questScore: round1(questScore),
-    notes: (() => {
-      const extra = gateConsumeReasonIfAny();
-      const base = (el.notes?.value || "").trim();
-      if(extra && base) return `${extra}\n${base}`;
-      if(extra) return extra;
-      return base;
-    })()
-  };
-
-  const data = loadAll();
-  const day = ensureDay(data, dateKey);
-  day.quests.push(entry);
-  recalcDayTotal(day);
-  saveAll(data);
-
-  updateStreakAfterChange();
-
-  if(el.submitOk){
-    el.submitOk.style.display="block";
-    const capMsg = (baseMinutesUsed < minutes) ? ` (cap: counted ${baseMinutesUsed}/${minutes} min)` : "";
-    el.submitOk.textContent = `Saved! +${round1(questScore).toFixed(1)}${capMsg}`;
+    if(!el.timerHint) return;
+    if(state.status==="idle") el.timerHint.textContent = "เลือกเควสแล้วกด Start";
+    else if(state.status==="running") el.timerHint.textContent = `กำลังจับเวลา • ${state.selectedCategory} • ${state.startDateKey}`;
+    else if(state.status==="paused") el.timerHint.textContent = "Paused • Resume หรือ Stop";
+    else el.timerHint.textContent = "Stopped • ส่ง Report เพื่อบันทึกคะแนน";
+  }
+  function showTimerWarn(msg){
+    if(!el.timerWarn) return;
+    el.timerWarn.style.display="block";
+    el.timerWarn.textContent=msg;
+    setTimeout(()=>{ if(el.timerWarn){ el.timerWarn.style.display="none"; el.timerWarn.textContent=""; } }, 2300);
+  }
+  function showNameWarn(msg){
+    if(!el.nameWarn) return;
+    el.nameWarn.style.display="block";
+    el.nameWarn.textContent=msg;
+  }
+  function clearNameWarn(){
+    if(!el.nameWarn) return;
+    el.nameWarn.style.display="none";
+    el.nameWarn.textContent="";
+  }
+  function clearSubmitMessages(){
+    if(el.submitOk){ el.submitOk.style.display="none"; el.submitOk.textContent=""; }
+    if(el.submitWarn){ el.submitWarn.style.display="none"; el.submitWarn.textContent=""; }
+  }
+  function applyBonusRule(minutes){
+    if(!el.qualityBonus || !el.bonusRuleHint) return;
+    if(minutes < RULES.bonusMinMinutes){
+      el.qualityBonus.value = "0";
+      el.qualityBonus.disabled = true;
+      el.bonusRuleHint.textContent = `Bonus lock (ต้อง ≥ ${RULES.bonusMinMinutes} นาที)`;
+    }else{
+      el.qualityBonus.disabled = false;
+      el.bonusRuleHint.textContent = `Bonus ใช้ได้ (เวลา ≥ ${RULES.bonusMinMinutes} นาที)`;
+    }
+  }
+  function updateCapHint(dateKey, questName){
+    if(!el.capHint) return;
+    const used = calcQuestBaseMinutesUsed(dateKey, questName);
+    const remaining = Math.max(0, RULES.baseCapPerQuestNamePerDay - used);
+    el.capHint.textContent =
+      `Cap ต่อชื่อเควส/วัน = ${RULES.baseCapPerQuestNamePerDay} นาที • วันนี้ "${normQuestName(questName)}" ใช้ base แล้ว ${used} นาที • เหลือ ${remaining} นาที`;
   }
 
-  if(el.notes) el.notes.value = "";
-  setTimeout(()=>{ discardReport(); }, 320);
-}
-
-function resetToday(){
-  const todayKey = localDateKey();
-  const ok = confirm(`Reset วันนี้ (${todayKey})? รายการวันนี้จะหายหมด`);
-  if(!ok) return;
-
-  pushUndoSnapshot();
-  const data = loadAll();
-  data[todayKey] = { totalQps:0, quests:[] };
-  saveAll(data);
-
-  gateResetForToday(true);
-  syncGateRuntimeFromCfg();
-
-  updateStreakAfterChange();
-  updateUI();
-  showTimerWarn("เคลียร์ข้อมูลวันนี้แล้ว");
-}
-
-/* =========================
-  HISTORY
-========================= */
-let selectedDay = null;
-
-function openHistory(){
-  const days = listDays();
-  if(days.length===0){
-    showTimerWarn("ยังไม่มีข้อมูลย้อนหลัง");
-    return;
+  /* Cutting UI */
+  function readCutMinutes(){
+    if(!el.cutMinutes) return null;
+    const raw = Number(el.cutMinutes.value);
+    if(!Number.isFinite(raw)) return null;
+    const n = clamp(Math.floor(raw), 1, 360);
+    return n;
+  }
+  function renderCutUI(){
+    if(!el.cutWrap || !el.cutBody || !el.cutChip) return;
+    el.cutWrap.classList.toggle("open", !!state.cutEnabled);
+    el.cutBody.style.display = state.cutEnabled ? "block" : "none";
+    if(!state.cutEnabled){
+      el.cutChip.textContent = "OFF";
+    }else{
+      el.cutChip.textContent = state.cutMinutes ? `${state.cutMinutes}m` : "ON";
+    }
   }
 
-  el.overlay?.classList.add("show");
+  function renderControls(){
+    if(el.stopBtn)   el.stopBtn.disabled   = !(state.status==="running" || state.status==="paused");
+    if(el.pauseBtn)  el.pauseBtn.disabled  = state.status !== "running";
+    if(el.resumeBtn) el.resumeBtn.disabled = state.status !== "paused";
 
-  document.body.style.overflow = "hidden";
-  if(el.appScroll) el.appScroll.style.overflow = "hidden";
+    const lock = state.status !== "idle";
+    if(el.category) el.category.disabled = lock;
+    if(el.questName) el.questName.disabled = lock;
 
-  selectedDay = selectedDay || localDateKey();
-  renderHistoryDays();
-  renderDayView(selectedDay);
-}
-function closeHistory(){
-  el.overlay?.classList.remove("show");
-  document.body.style.overflow = "";
-  if(el.appScroll) el.appScroll.style.overflow = "";
-}
+    if(state.status==="idle"){
+      if(el.category) el.category.value = state.selectedCategory || "Learning";
+      if(el.questName) el.questName.value = state.questName || "";
+      if(el.cutMinutes) el.cutMinutes.value = state.cutMinutes ? String(state.cutMinutes) : "";
+      if(el.cutMode) el.cutMode.value = state.cutMode || "hard";
+    }
 
-function renderHistoryDays(){
-  const days = listDays();
-  const data = loadAll();
-  if(!el.dayList) return;
-
-  el.dayList.innerHTML = days.map(d=>{
-    const t = (data[d]?.totalQps ?? 0);
-    const active = (d === selectedDay) ? "active" : "";
-    return `<button class="dayBtn ${active}" data-day="${d}">${d} • ${Number(t).toFixed(1)} QPS</button>`;
-  }).join("");
-
-  el.dayList.querySelectorAll(".dayBtn").forEach(btn=>{
-    on(btn, "click", ()=>{
-      selectedDay = btn.dataset.day;
-      renderHistoryDays();
-      renderDayView(selectedDay);
-    });
-  });
-}
-function renderDayView(dayKey){
-  const data = loadAll();
-  const day = data[dayKey] || { totalQps:0, quests:[] };
-  if(el.histTitle) el.histTitle.textContent = dayKey;
-
-  if(!el.dayView) return;
-
-  if(!day.quests || day.quests.length===0){
-    el.dayView.innerHTML = `<div class="hint">วันนั้นยังไม่มีรายงาน</div>`;
-    return;
+    renderCutUI();
+    gateEnforceStartButton();
+    renderGateTogglePill();
   }
 
-  const log = day.quests.slice().reverse();
-  el.dayView.innerHTML = `
-    <div class="badge" style="margin-bottom:10px;">Total: <b>${Number(day.totalQps||0).toFixed(1)}</b></div>
-    <div class="list">
-      ${log.map(item=>{
-        const name = normQuestName(item.questName) ? normQuestName(item.questName) : "(no name)";
-        return `
-          <div class="item">
-            <div class="itemTop">
-              <div class="itemName">${escapeHtml(name)}</div>
-              <div class="itemScore">+${Number(item.questScore||0).toFixed(1)}</div>
-            </div>
-            <div class="itemMeta">
-              ${escapeHtml(item.category)} • ${item.minutesSpent} min • base ${Number(item.baseScore||0).toFixed(1)} + bonus ${item.qualityBonus||0}
-            </div>
-            ${item.notes ? `<div class="itemMeta" style="margin-top:8px;">📝 ${escapeHtml(item.notes)}</div>` : ``}
+  function renderToday(){
+    const todayKey = localDateKey();
+    if(el.todayText) el.todayText.textContent = `Today: ${todayKey}`;
+
+    const total = calcDayTotal(todayKey);
+    if(el.todayTotal) el.todayTotal.textContent = total.toFixed(1);
+    if(el.progressFill) el.progressFill.style.width = `${Math.max(0,Math.min(100,total))}%`;
+
+    const data = loadAll();
+    const day = data[todayKey] || { totalQps:0, quests:[] };
+    const log = (day.quests||[]).slice().reverse();
+
+    if(!el.todayList) return;
+
+    if(log.length===0){
+      el.todayList.innerHTML = `<div class="hint">ยังไม่มีรายงานวันนี้</div>`;
+      return;
+    }
+
+    el.todayList.innerHTML = log.map(item=>{
+      const name = normQuestName(item.questName) ? normQuestName(item.questName) : "(no name)";
+      const mins = Number(item.minutesSpent||0);
+      const baseMins = Number(item.baseMinutesUsed||0);
+      const baseScore = Number(item.baseScore||0);
+      const bonus = Number(item.qualityBonus||0);
+      const questScore = Number(item.questScore||0);
+      const capNote = (baseMins < mins) ? ` • cap: counted ${baseMins}/${mins} min` : "";
+      return `
+        <div class="item">
+          <div class="itemTop">
+            <div class="itemName">${escapeHtml(name)}</div>
+            <div class="itemScore">+${round1(questScore).toFixed(1)}</div>
           </div>
-        `;
-      }).join("")}
-    </div>
-  `;
-}
-
-/* =========================
-  EXPORT/IMPORT
-========================= */
-function downloadJson(filename, obj){
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-function isValidDataShape(all){
-  if(!all || typeof all !== "object") return false;
-  for(const dayKey of Object.keys(all)){
-    const day = all[dayKey];
-    if(!day || typeof day !== "object") return false;
-    if(!Array.isArray(day.quests)) return false;
-    if(typeof day.totalQps !== "number") return false;
-  }
-  return true;
-}
-function exportData(){
-  const payload = {
-    version: KEY_DATA,
-    exportedAt: new Date().toISOString(),
-    data: loadAll()
-  };
-  downloadJson(`qpsData_v4_${localDateKey()}.json`, payload);
-  showTimerWarn("Exported ✅ (ไฟล์อยู่ Downloads)");
-}
-function importDataObject(imported, mode="merge"){
-  const raw = imported?.data ?? imported;
-  if(!isValidDataShape(raw)){
-    alert("ไฟล์ไม่ถูกต้อง: โครงสร้างไม่ตรง qpsData_v4");
-    return;
+          <div class="itemMeta">${escapeHtml(item.category)} • ${mins} min • base ${round1(baseScore).toFixed(1)} + bonus ${bonus}${capNote}</div>
+          ${item.notes ? `<div class="itemMeta" style="margin-top:8px;">📝 ${escapeHtml(item.notes)}</div>` : ``}
+        </div>
+      `;
+    }).join("");
   }
 
-  pushUndoSnapshot();
+  function updateUI(){
+    updateStatusPill();
+    renderTimer();
+    renderControls();
+    renderGateUX();
+    renderToday();
+    setReportVisible(state.status==="stopped");
+    renderUndoRedo();
+    renderGatePageUI(); // if gate page exists
+  }
 
-  if(mode === "replace"){
-    saveAll(raw);
-  }else{
-    const cur = loadAll();
-    for(const dayKey of Object.keys(raw)){
-      const incomingDay = raw[dayKey];
-      const target = ensureDay(cur, dayKey);
-      target.quests = target.quests.concat(incomingDay.quests || []);
-      recalcDayTotal(target);
+  /* =========================
+    RANDOM QUEST (stable implementation)
+  ========================= */
+  const RQ_GEN = {
+    durations: {
+      low:  { min:10, max:20 },
+      mid:  { min:25, max:40 },
+      high: { min:45, max:70 },
+    },
+    physical: {
+      low:  ["เดิน", "ยืดเหยียด", "mobility", "วิ่งเบา", "คาร์ดิโอเบา"],
+      mid:  ["อก", "หลัง", "ไหล่", "แขน", "ขา", "ท้อง", "คาร์ดิโอ"],
+      high: ["Upper (อก+ไหล่)", "Pull (หลัง+แขน)", "Legs (ขา)", "Full body", "คาร์ดิโอหนัก + ท้อง"]
+    },
+    workActions: [
+      "ลงมือทำ Focus",
+      "แก้/ปรับ Focus",
+      "วางแผน Focus",
+      "ส่งงาน/โพสต์ Focus",
+      "หาลูกค้า/ติดต่อ Focus",
+      "สรุปบทเรียน Focus"
+    ],
+    learningActivities: {
+      language: [
+        { act:"ท่องศัพท์", tail:"แต่ง 5 ประโยค" },
+        { act:"อ่านเนื้อหา", tail:"เขียนใจความ 5 bullet" },
+        { act:"ฟัง/ดูคลิป", tail:"สรุป 5 bullet" },
+        { act:"ฝึกใช้จริง", tail:"แต่ง 8 ประโยค" },
+        { act:"ทบทวน", tail:"สรุปสิ่งที่พลาด 3 ข้อ" },
+      ],
+      math: [
+        { act:"ทำโจทย์", tail:"Error log 3 ข้อ" },
+        { act:"ทบทวนสูตร", tail:"สรุปสูตร + ตัวอย่าง 2 ข้อ" },
+        { act:"แก้โจทย์ชุด", tail:"ตรวจคำตอบ + สรุปจุดพลาด" },
+      ],
+      generic: [
+        { act:"อ่านเนื้อหา", tail:"เขียนใจความ 5 bullet" },
+        { act:"ดูคลิป", tail:"สรุป 5 bullet" },
+        { act:"ทบทวน", tail:"สรุป 5 bullet" },
+        { act:"จดสรุป", tail:"ย่อ 5 บรรทัด" },
+      ],
+    },
+    kw: {
+      language: ["eng","english","chinese","japan","korea","vocab","sentence","reading","listening","speaking","grammar","汉语","中文","ภาษาอังกฤษ","ภาษาจีน","ศัพท์","ประโยค","อ่าน","ฟัง","พูด","แกรมม่า"],
+      math: ["math","algebra","equation","calculus","stats","logic","dp","สมการ","สถิติ","ฟังก์ชัน","ตรรกะ","โจทย์","พิสูจน์"],
+    },
+    fallbackPool: {
+      low: [
+        { category:"Learning", name:"Learning • อ่าน/สรุป", tail:"สรุป 5 bullet" },
+        { category:"Physical", name:"Physical • เดิน", tail:"" },
+        { category:"Work/Project", name:"Work • จัดระบบ", tail:"Focus" },
+      ],
+      mid: [
+        { category:"Learning", name:"Learning • ทบทวน", tail:"เขียนใจความ 5 bullet" },
+        { category:"Physical", name:"Physical • ท้อง", tail:"" },
+        { category:"Work/Project", name:"Work • ลงมือทำ", tail:"Focus" },
+      ],
+      high: [
+        { category:"Work/Project", name:"Work • Ship 1 อย่าง", tail:"Focus" },
+        { category:"Physical", name:"Physical • Full body", tail:"" },
+        { category:"Learning", name:"Learning • ทำชุด", tail:"สรุปจุดพลาด 3 ข้อ" },
+      ]
     }
-    saveAll(cur);
+  };
+
+  function rqRandInt(min, max){
+    min = Math.ceil(min); max = Math.floor(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  function rqPickOne(arr){
+    return arr[Math.floor(Math.random() * arr.length)];
+  }
+  function rqHash(str){
+    let h = 2166136261;
+    for(let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return "H" + (h >>> 0).toString(36);
+  }
+  function rqExtractDomainFromQuestName(name){
+    const n = normQuestName(name);
+    if(!n) return "";
+    const cut = n.split("•")[0].split("-")[0].split("|")[0].trim();
+    return cut.replace(/\b(\d+)\s*(min|m)\b/ig,"").trim();
+  }
+  function rqClassifyLearningType(domain){
+    const d = (domain||"").toLowerCase();
+    const has = (list)=> list.some(k => d.includes(k.toLowerCase()));
+    if(has(RQ_GEN.kw.language)) return "language";
+    if(has(RQ_GEN.kw.math)) return "math";
+    return "generic";
+  }
+  function rqGetDomainsFromHistory(category, lookbackDays = RQ_RULES.lookbackDays){
+    const data = loadAll();
+    const today = localDateKey();
+    const freq = new Map();
+
+    for(let i=0;i<lookbackDays;i++){
+      const dk = addDays(today, -i);
+      const day = data[dk];
+      if(!day?.quests) continue;
+      for(const q of day.quests){
+        if(q.category !== category) continue;
+        const dom = rqExtractDomainFromQuestName(q.questName);
+        if(!dom) continue;
+        const key = dom.toLowerCase();
+        freq.set(key, { dom, n: (freq.get(key)?.n || 0) + 1 });
+      }
+    }
+    const sorted = [...freq.values()].sort((a,b)=> b.n - a.n);
+    return sorted.map(x => x.dom);
   }
 
-  updateStreakAfterChange();
-  selectedDay = localDateKey();
-  updateUI();
+  /* 7d stats for balancing */
+  function rqBuild7dStats(){
+    const data = loadAll();
+    const today = localDateKey();
+    const cats = ["Learning","Work/Project","Physical"];
+    const stat = {};
+    cats.forEach(c=> stat[c]={ minutes:0, count:0 });
 
-  if(el.overlay?.classList.contains("show")){
+    for(let i=0;i<7;i++){
+      const dk = addDays(today, -i);
+      const day = data[dk];
+      if(!day?.quests) continue;
+      for(const q of day.quests){
+        if(!stat[q.category]) continue;
+        stat[q.category].minutes += Number(q.minutesSpent||0);
+        stat[q.category].count += 1;
+      }
+    }
+    return stat;
+  }
+  function rqChooseCategoryByBalance(){
+    const stats = rqBuild7dStats();
+    const cats = ["Learning","Work/Project","Physical"];
+    const maxMin = Math.max(...cats.map(c => stats[c]?.minutes || 0), 1);
+
+    const scored = cats.map(c=>{
+      const m = stats[c]?.minutes || 0;
+      const w = 1 + (1 - (m / maxMin)); // 1..2
+      return { c, w };
+    });
+
+    const sum = scored.reduce((a,x)=>a+x.w,0);
+    let r = Math.random()*sum;
+    for(const it of scored){
+      r -= it.w;
+      if(r<=0) return it.c;
+    }
+    return scored[0].c;
+  }
+
+  /* done ids per day */
+  function rqDoneKey(){ return KEY_RQ_DONE_PREFIX + localDateKey(); }
+  function rqGetDoneSet(){
+    try{
+      const raw = localStorage.getItem(rqDoneKey());
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr : []);
+    }catch{
+      return new Set();
+    }
+  }
+  function rqSaveDoneSet(set){
+    localStorage.setItem(rqDoneKey(), JSON.stringify([...set]));
+  }
+  function rqMarkDone(id){
+    const set = rqGetDoneSet();
+    set.add(id);
+    rqSaveDoneSet(set);
+  }
+
+  /* cooldown */
+  function rqCooldownUntil(){
+    const v = Number(localStorage.getItem(KEY_RQ_CD) || 0);
+    return Number.isFinite(v) ? v : 0;
+  }
+  function rqIsCooldown(){
+    return Date.now() < rqCooldownUntil();
+  }
+  function rqCooldownLeft(){
+    const ms = rqCooldownUntil() - Date.now();
+    if(ms<=0) return "00:00";
+    return formatMMSS(Math.ceil(ms/1000));
+  }
+  function rqSetCooldown(){
+    const until = Date.now() + RQ_RULES.cooldownMin*60000;
+    localStorage.setItem(KEY_RQ_CD, String(until));
+  }
+
+  /* selected */
+  function rqGetSelected(){
+    try{
+      const raw = localStorage.getItem(KEY_RQ_SEL);
+      const obj = raw ? JSON.parse(raw) : null;
+      if(!obj || typeof obj!=="object") return null;
+      if(!obj.id || !obj.name) return null;
+      return obj;
+    }catch{
+      return null;
+    }
+  }
+  function rqSetSelected(q){
+    localStorage.setItem(KEY_RQ_SEL, JSON.stringify(q));
+  }
+  function rqClearSelected(){
+    localStorage.removeItem(KEY_RQ_SEL);
+  }
+
+  /* build quest */
+  function rqBuildQuestFromGrammar(category, energy){
+    const dcfg = RQ_GEN.durations[energy] || RQ_GEN.durations.low;
+    const duration = rqRandInt(dcfg.min, dcfg.max);
+
+    if(category === "Physical"){
+      const pick = rqPickOne(RQ_GEN.physical[energy] || RQ_GEN.physical.low);
+      const name = `Physical • ${pick}`;
+      const sig = `${category}|${name}|${duration}`;
+      return { id: rqHash(sig), category, duration, energy, name };
+    }
+
+    if(category === "Learning"){
+      const domains = rqGetDomainsFromHistory("Learning");
+      const domain = domains[0] || "Learning";
+      const type = rqClassifyLearningType(domain);
+      const act = rqPickOne(RQ_GEN.learningActivities[type] || RQ_GEN.learningActivities.generic);
+      const name = `${domain} • ${act.act}${act.tail ? " + " + act.tail : ""}`;
+      const sig = `${category}|${name}|${duration}`;
+      return { id: rqHash(sig), category, duration, energy, name };
+    }
+
+    if(category === "Work/Project"){
+      const domains = rqGetDomainsFromHistory("Work/Project");
+      const domain = domains[0] || "Work";
+      const action = rqPickOne(RQ_GEN.workActions);
+      const name = `${domain} • ${action}`;
+      const sig = `${category}|${name}|${duration}`;
+      return { id: rqHash(sig), category, duration, energy, name };
+    }
+
+    if(category === "Connection"){
+      const actions = ["ทักคนสำคัญ", "อัปเดตงานให้คนเกี่ยวข้อง", "ขอ feedback", "ตอบแชทค้าง"];
+      const name = `Connection • ${rqPickOne(actions)} Focus`;
+      const sig = `${category}|${name}|${duration}`;
+      return { id: rqHash(sig), category, duration, energy, name };
+    }
+
+    const fb = rqPickOne(RQ_GEN.fallbackPool[energy] || RQ_GEN.fallbackPool.low);
+    const name = `${fb.name}${fb.tail ? " + " + fb.tail : ""}`;
+    const sig = `${fb.category}|${name}|${duration}`;
+    return { id: rqHash(sig), category: fb.category, duration, energy, name };
+  }
+
+  function rqPick(energy){
+    const category = rqChooseCategoryByBalance();
+    const done = rqGetDoneSet();
+
+    for(let i=0;i<8;i++){
+      const q = rqBuildQuestFromGrammar(category, energy);
+      if(!done.has(q.id)) return { ok:true, quest:q };
+    }
+
+    const fb = rqPickOne(RQ_GEN.fallbackPool[energy] || RQ_GEN.fallbackPool.low);
+    const duration = rqRandInt(RQ_GEN.durations[energy].min, RQ_GEN.durations[energy].max);
+    const name = `${fb.name}${fb.tail ? " + " + fb.tail : ""}`;
+    const q = { id: rqHash(`${fb.category}|${name}|${duration}`), category: fb.category, duration, energy, name };
+    if(!done.has(q.id)) return { ok:true, quest:q };
+
+    return { ok:false, reason:"NO_CANDIDATES" };
+  }
+
+  function rqOpenModal(){
+    if(!el.rqOverlay) return;
+    if(el.diceFab && el.diceFab.style.display === "none") return;
+    el.rqOverlay.classList.add("show");
+    el.rqOverlay.setAttribute("aria-hidden","false");
+    document.body.style.overflow = "hidden";
+  }
+  function rqCloseModal(){
+    if(!el.rqOverlay) return;
+    el.rqOverlay.classList.remove("show");
+    el.rqOverlay.setAttribute("aria-hidden","true");
+    document.body.style.overflow = "";
+  }
+  function rqRenderSelectedToModal(){
+    const q = rqGetSelected();
+    if(!q){
+      el.rqResult2?.classList.remove("show");
+      if(el.rqBigName) el.rqBigName.textContent = "—";
+      if(el.rqMeta2) el.rqMeta2.textContent = "—";
+      return;
+    }
+    el.rqResult2?.classList.add("show");
+    if(el.rqBigName) el.rqBigName.textContent = q.name;
+    if(el.rqMeta2) el.rqMeta2.textContent = `${q.category} • ${q.duration} min • ${String(q.energy).toUpperCase()}`;
+  }
+  function rqShowIfEligible(){
+    if(!el.diceFab || !el.diceBtn || !el.diceCd) return;
+
+    el.diceFab.style.display = "flex";
+
+    const blockedByGate = (isGateActiveToday() && !gate.passed && !isFirstQuestAlreadyDoneToday());
+    el.diceBtn.disabled = blockedByGate || rqIsCooldown();
+    if(blockedByGate){
+      el.diceCd.classList.add("show");
+      el.diceCd.innerHTML = `ผ่าน Gate ก่อนถึงจะสุ่มได้`;
+    }else{
+      rqTickUI();
+    }
+  }
+  function rqTickUI(){
+    if(!el.diceBtn || !el.diceCd) return;
+
+    const locked = rqIsCooldown();
+    if(locked){
+      el.diceCd.classList.add("show");
+      el.diceCd.innerHTML = `Cooldown: <b>${rqCooldownLeft()}</b>`;
+      el.diceBtn.classList.remove("dicePulse");
+      el.diceBtn.disabled = true;
+    }else{
+      el.diceCd.classList.remove("show");
+      el.diceBtn.classList.add("dicePulse");
+      // disabled = gate block handled by rqShowIfEligible
+    }
+
+    if(el.rqPickLow)  el.rqPickLow.disabled  = locked;
+    if(el.rqPickMid)  el.rqPickMid.disabled  = locked;
+    if(el.rqPickHigh) el.rqPickHigh.disabled = locked;
+
+    rqRenderSelectedToModal();
+  }
+  function rqHandleRandom(energy){
+    if(state.status !== "idle"){
+      showTimerWarn("สุ่มได้ตอน Idle เท่านั้น");
+      return;
+    }
+    if(rqIsCooldown()){
+      rqTickUI();
+      showTimerWarn("ติด cooldown");
+      return;
+    }
+
+    el.diceBtn?.classList.add("rqSpin");
+    setTimeout(()=> el.diceBtn?.classList.remove("rqSpin"), 560);
+
+    const res = rqPick(energy);
+    if(!res.ok){
+      showTimerWarn("วันนี้สุ่มหมดแล้ว (พลังงานนี้)");
+      return;
+    }
+
+    rqSetSelected(res.quest);
+    rqSetCooldown();
+    rqTickUI();
+  }
+  function rqStartNow(){
+    if(state.status !== "idle"){
+      showTimerWarn("ต้องอยู่ Idle ก่อน");
+      return;
+    }
+    const q = rqGetSelected();
+    if(!q){
+      showTimerWarn("ยังไม่ได้สุ่มเควส");
+      return;
+    }
+
+    if(el.category) el.category.value = q.category;
+    if(el.questName) el.questName.value = q.name;
+    state.selectedCategory = q.category;
+    state.questName = q.name;
+
+    state.cutEnabled = true;
+    state.cutMinutes = q.duration;
+    if(el.cutMinutes) el.cutMinutes.value = String(q.duration);
+    if(el.cutMode) el.cutMode.value = "hard";
+    state.cutMode = "hard";
+
+    saveState();
+    renderCutUI();
+    clearNameWarn();
+
+    startQuest();
+
+    if(state.status === "running"){
+      rqMarkDone(q.id);
+    }
+  }
+
+  /* =========================
+    TIMER TICK
+  ========================= */
+  function startTick(){
+    if(tickHandle) clearInterval(tickHandle);
+    tickHandle = setInterval(()=>{
+      renderTimer();
+
+      // auto stop if cutting enabled
+      if(state.status === "running" && state.cutEnabled && state.cutMinutes){
+        const ms = computeElapsedMs();
+        const targetMs = state.cutMinutes * 60000;
+
+        if(ms >= targetMs){
+          if(state.cutMode === "soft"){
+            if(!state.softWarned){
+              state.softWarned = true;
+              state.softDeadlineTs = Date.now() + 10000;
+              saveState();
+              showTimerWarn(`ครบ ${state.cutMinutes} นาทีแล้ว — จะหยุดอัตโนมัติใน 10 วิ`);
+              return;
+            }
+            if(Date.now() < state.softDeadlineTs) return;
+          }
+
+          state.softWarned = false;
+          state.softDeadlineTs = 0;
+
+          state.elapsedBefore = targetMs;
+          state.startTs = null;
+          saveState();
+
+          showTimerWarn(`Stop อัตโนมัติ ✅ (${state.cutMinutes} นาที)`);
+          stopQuest();
+        }
+      }
+
+      // Gate tick
+      syncGateRuntimeFromCfg();
+      gateMaybeLock();
+      gateCheckFirstQuestQualify();
+      gateEnforceStartButton();
+      renderGateUX();
+
+      // Random tick
+      rqTickUI();
+    }, 250);
+  }
+
+  /* =========================
+    ACTIONS
+  ========================= */
+  function validateBeforeStart(){
+    clearNameWarn();
+    const todayKey = localDateKey();
+    const qn = normQuestName(el.questName?.value);
+
+    if(!qn){
+      showNameWarn("ต้องใส่ Quest Name (ห้ามปล่อยว่าง)");
+      return false;
+    }
+    if(isQuestNameDuplicateToday(todayKey, qn)){
+      showNameWarn("ชื่อนี้มีแล้วในวันนี้ ❌ (ห้ามซ้ำ) — เปลี่ยนชื่อใหม่");
+      return false;
+    }
+    return true;
+  }
+
+  function startQuest(){
+    if(state.status !== "idle") return;
+
+    if(!gateCanStartQuest()){
+      showTimerWarn("ติด Morning Gate");
+      if(isGateActiveToday() && gateIsWorldActiveNow() && !gate.startedAt){
+        showGateCover();
+        renderGateUX();
+      }
+      return;
+    }
+
+    if(!validateBeforeStart()){
+      showTimerWarn("แก้ Quest Name ก่อน");
+      return;
+    }
+
+    state.status="running";
+    state.selectedCategory = el.category?.value || state.selectedCategory;
+    state.questName = normQuestName(el.questName?.value);
+    state.startDateKey = localDateKey();
+
+    state.startTs = Date.now();
+    state.elapsedBefore = 0;
+    state.lastElapsedMs = 0;
+
+    state.cutMinutes = state.cutEnabled ? readCutMinutes() : null;
+    state.cutMode = el.cutMode?.value || "hard";
+    state.softWarned = false;
+    state.softDeadlineTs = 0;
+
+    saveState();
+    clearSubmitMessages();
+    setReportVisible(false);
+    updateUI();
+
+    if(isGateActiveToday() && gateIsWorldActiveNow() && !gate.passed && !isFirstQuestAlreadyDoneToday()){
+      gate.firstQuestStartAt = Date.now();
+      saveGate();
+    }
+  }
+
+  function pauseQuest(){
+    if(state.status!=="running") return;
+    const now = Date.now();
+    state.elapsedBefore = computeElapsedMs(now);
+    state.startTs = null;
+    state.status = "paused";
+    state.softWarned = false;
+    state.softDeadlineTs = 0;
+    saveState();
+    updateUI();
+  }
+
+  function resumeQuest(){
+    if(state.status!=="paused") return;
+    state.status="running";
+    state.startTs=Date.now();
+    state.softWarned = false;
+    state.softDeadlineTs = 0;
+    saveState();
+    updateUI();
+  }
+
+  function stopQuest(){
+    if(!(state.status==="running" || state.status==="paused")) return;
+
+    const now = Date.now();
+    const elapsed = (state.status==="running") ? computeElapsedMs(now) : state.elapsedBefore;
+
+    state.status="stopped";
+    state.startTs=null;
+    state.elapsedBefore=elapsed;
+    state.lastElapsedMs=elapsed;
+    saveState();
+
+    const minutes = Math.max(0, Math.round(elapsed/60000));
+    if(el.reportMinutes) el.reportMinutes.value = String(minutes);
+    applyBonusRule(minutes);
+
+    const dateKey = state.startDateKey || localDateKey();
+    updateCapHint(dateKey, state.questName);
+
+    clearSubmitMessages();
+    setReportVisible(true);
+    updateUI();
+    scrollToId("sec-report");
+  }
+
+  function discardReport(){
+    state.status="idle";
+    state.startTs=null;
+    state.elapsedBefore=0;
+    state.lastElapsedMs=0;
+    state.startDateKey=null;
+
+    state.softWarned = false;
+    state.softDeadlineTs = 0;
+
+    saveState();
+    setReportVisible(false);
+    clearSubmitMessages();
+    updateUI();
+  }
+
+  function submitReport(){
+    clearSubmitMessages();
+
+    const minutes = Number(el.reportMinutes?.value);
+    if(!Number.isFinite(minutes) || minutes <= 0){
+      if(el.submitWarn){
+        el.submitWarn.style.display="block";
+        el.submitWarn.textContent="Minutes ต้อง > 0";
+      }
+      return;
+    }
+
+    applyBonusRule(minutes);
+    const bonus = el.qualityBonus?.disabled ? 0 : Number(el.qualityBonus?.value||0);
+
+    const dateKey = state.startDateKey || localDateKey();
+    const qn = normQuestName(state.questName);
+
+    if(isQuestNameDuplicateToday(dateKey, qn)){
+      if(el.submitWarn){
+        el.submitWarn.style.display="block";
+        el.submitWarn.textContent="ชื่อเควสซ้ำในวันนี้แล้ว — เปลี่ยนชื่อ";
+      }
+      return;
+    }
+
+    const used = calcQuestBaseMinutesUsed(dateKey, qn);
+    const remaining = Math.max(0, RULES.baseCapPerQuestNamePerDay - used);
+    const baseMinutesUsed = Math.min(minutes, remaining);
+
+    const baseScore = baseMinutesUsed * RULES.basePerMinute;
+    const questScore = baseScore + bonus;
+
+    pushUndoSnapshot();
+
+    const entry = {
+      ts: Date.now(),
+      dateKey,
+      category: state.selectedCategory,
+      questName: qn,
+      minutesSpent: minutes,
+      baseMinutesUsed,
+      baseScore: round1(baseScore),
+      qualityBonus: bonus,
+      questScore: round1(questScore),
+      notes: (() => {
+        const extra = gateConsumeReasonIfAny();
+        const base = (el.notes?.value || "").trim();
+        if(extra && base) return `${extra}\n${base}`;
+        if(extra) return extra;
+        return base;
+      })()
+    };
+
+    const data = loadAll();
+    const day = ensureDay(data, dateKey);
+    day.quests.push(entry);
+    recalcDayTotal(day);
+    saveAll(data);
+
+    updateStreakAfterChange();
+
+    if(el.submitOk){
+      el.submitOk.style.display="block";
+      const capMsg = (baseMinutesUsed < minutes) ? ` (cap: counted ${baseMinutesUsed}/${minutes} min)` : "";
+      el.submitOk.textContent = `Saved! +${round1(questScore).toFixed(1)}${capMsg}`;
+    }
+
+    if(el.notes) el.notes.value = "";
+    setTimeout(()=>{ discardReport(); }, 320);
+  }
+
+  function resetToday(){
+    const todayKey = localDateKey();
+    const ok = confirm(`Reset วันนี้ (${todayKey})? รายการวันนี้จะหายหมด`);
+    if(!ok) return;
+
+    pushUndoSnapshot();
+    const data = loadAll();
+    data[todayKey] = { totalQps:0, quests:[] };
+    saveAll(data);
+
+    gateResetForToday(true);
+    syncGateRuntimeFromCfg();
+
+    updateStreakAfterChange();
+    updateUI();
+    showTimerWarn("เคลียร์ข้อมูลวันนี้แล้ว");
+  }
+
+  /* =========================
+    HISTORY
+  ========================= */
+  let selectedDay = null;
+
+  function openHistory(){
+    const days = listDays();
+    if(days.length===0){
+      showTimerWarn("ยังไม่มีข้อมูลย้อนหลัง");
+      return;
+    }
+
+    el.overlay?.classList.add("show");
+
+    document.body.style.overflow = "hidden";
+    if(el.appScroll) el.appScroll.style.overflow = "hidden";
+
+    selectedDay = selectedDay || localDateKey();
     renderHistoryDays();
     renderDayView(selectedDay);
   }
-
-  if(isFirstQuestAlreadyDoneToday()){
-    gate.passed = true;
-    gate.locked = false;
-    gate.unlocked = true;
-    saveGate();
+  function closeHistory(){
+    el.overlay?.classList.remove("show");
+    document.body.style.overflow = "";
+    if(el.appScroll) el.appScroll.style.overflow = "";
   }
 
-  showTimerWarn(`Imported ✅ (${mode.toUpperCase()})`);
-}
-async function importFromFile(file){
-  const text = await file.text();
-  let obj;
-  try { obj = JSON.parse(text); }
-  catch { alert("ไฟล์ JSON อ่านไม่ได้"); return; }
+  function renderHistoryDays(){
+    const days = listDays();
+    const data = loadAll();
+    if(!el.dayList) return;
 
-  const choice = prompt("Import mode: พิมพ์ merge หรือ replace", "merge");
-  const mode = (choice || "merge").toLowerCase() === "replace" ? "replace" : "merge";
-  if(!confirm(`ยืนยัน Import แบบ ${mode.toUpperCase()} ?`)) return;
+    el.dayList.innerHTML = days.map(d=>{
+      const t = (data[d]?.totalQps ?? 0);
+      const active = (d === selectedDay) ? "active" : "";
+      return `<button class="dayBtn ${active}" data-day="${d}">${d} • ${Number(t).toFixed(1)} QPS</button>`;
+    }).join("");
 
-  importDataObject(obj, mode);
-}
-
-/* =========================
-  TOOLTIP
-========================= */
-const TIPS = {
-  top:   { title: "ภาพรวม", body: "หลักการ: Start → Stop → Report → ได้คะแนน\nUndo/Redo ใช้แก้ล่าสุดได้ (หน้า Today)\nMorning Gate: ตั้งในหน้า Gate (กดปุ่ม Morning Gate ขวาบน)\nRandom Quest ใช้กัน plan switching (มี cooldown)" },
-  timer: { title: "Timer", body: "เลือกหมวด + ตั้ง Quest Name แล้วกด Start\nPause/Resume ได้\nStop แล้วค่อย Report" },
-  name:  { title: "Quest Name (ห้ามซ้ำ)", body: "ชื่อต้องไม่ซ้ำในวันเดียว\nCap base จะนับตามชื่อเควสนี้ (60 นาที/วัน/ชื่อ)" },
-  today: { title: "Today", body: "ดูคะแนนรวมวันนี้ + รายการเควส\nExport/Import ใช้สำรองข้อมูล" },
-  report:{ title: "Report", body: "Report จะโผล่เมื่อกด Stop\nMinutes > 0\nBonus ใช้ได้เมื่อเวลา ≥ 30 นาที" },
-  cut:   { title: "Cutting Time", body: "กด Set Time เพื่อเปิด\nใส่นาที 1–360\nHard: ถึงแล้วหยุดทันที\nSoft: เตือนก่อน 10 วิ แล้วหยุด" },
-  gate:  { title: "Morning Gate", body:
-`ตั้งค่าในหน้า Gate (กดปุ่ม Morning Gate ขวาบน)
-- Trigger ล็อก 7 วันหลังตั้ง
-- Limit 10 นาที (fix) • Qualify 3 นาที (fix)
-- กันโกง: ตั้งหลัง Trigger วันนี้ → เริ่มใช้พรุ่งนี้
-- PASS = เควสแรกวิ่งครบ 3 นาทีภายใน deadline → โบนัส +6` },
-  random: { title:"Random Quest", body:
-`ใช้หลัง Morning Gate PASS หรือใช้กัน plan switching
-สุ่มแล้วติด cooldown 30 นาทีทันที
-Start Now = auto-fill ชื่อ + category + cutting time แล้ว Start
-กันสุ่มซ้ำในวันเดียว` }
-};
-
-function showTooltip(anchorEl, tipKey){
-  if(!el.tooltip || !el.tipArrow || !el.tipTitle || !el.tipBody || !el.appScroll) return;
-
-  const tip = TIPS[tipKey] || { title:"Tip", body:"-" };
-  el.tipTitle.textContent = tip.title;
-  el.tipBody.textContent = tip.body;
-
-  const sc = el.appScroll;
-  const scRect = sc.getBoundingClientRect();
-  const rect = anchorEl.getBoundingClientRect();
-
-  const pad = 10;
-  const tw = Math.min(340, scRect.width - 24);
-
-  const anchorLeftInApp = (rect.left - scRect.left) + sc.scrollLeft;
-  const anchorTopInApp  = (rect.top  - scRect.top)  + sc.scrollTop;
-
-  let left = anchorLeftInApp;
-  let top  = anchorTopInApp + rect.height + pad;
-
-  left = Math.max(sc.scrollLeft + 12, Math.min(left, sc.scrollLeft + scRect.width - tw - 12));
-
-  const approxH = 200;
-  if(top + approxH > sc.scrollTop + sc.clientHeight - 12){
-    top = anchorTopInApp - approxH - pad;
+    el.dayList.querySelectorAll(".dayBtn").forEach(btn=>{
+      on(btn, "click", ()=>{
+        selectedDay = btn.dataset.day;
+        renderHistoryDays();
+        renderDayView(selectedDay);
+      });
+    });
   }
-  top = Math.max(sc.scrollTop + 12, top);
+  function renderDayView(dayKey){
+    const data = loadAll();
+    const day = data[dayKey] || { totalQps:0, quests:[] };
+    if(el.histTitle) el.histTitle.textContent = dayKey;
 
-  el.tooltip.style.left = left + "px";
-  el.tooltip.style.top  = top + "px";
-  el.tooltip.style.width = tw + "px";
-  el.tooltip.classList.add("show");
+    if(!el.dayView) return;
 
-  const arrowSize = 14;
-  let ax = anchorLeftInApp + 10;
-  ax = Math.max(sc.scrollLeft + 12, Math.min(ax, sc.scrollLeft + scRect.width - arrowSize - 12));
-  const ay = (top > anchorTopInApp) ? (anchorTopInApp + rect.height + 2) : (anchorTopInApp - arrowSize - 2);
-
-  el.tipArrow.style.left = ax + "px";
-  el.tipArrow.style.top  = ay + "px";
-  el.tipArrow.classList.add("show");
-}
-function hideTooltip(){
-  el.tooltip?.classList.remove("show");
-  el.tipArrow?.classList.remove("show");
-}
-
-/* =========================
-  ONBOARDING
-========================= */
-function openOnboarding(){ el.onOverlay?.classList.add("show"); }
-function closeOnboarding(markSeen=true){
-  el.onOverlay?.classList.remove("show");
-  if(markSeen) localStorage.setItem(KEY_ONBOARD, "1");
-}
-function maybeShowOnboardingFirstTime(){
-  const seen = localStorage.getItem(KEY_ONBOARD) === "1";
-  if(!seen) openOnboarding();
-}
-
-/* =========================
-  EVENTS
-========================= */
-// timer buttons
-on(el.startBtn, "click", startQuest);
-on(el.pauseBtn, "click", pauseQuest);
-on(el.resumeBtn, "click", resumeQuest);
-on(el.stopBtn, "click", stopQuest);
-
-// report
-on(el.reportMinutes, "input", ()=>{
-  const minutes = Number(el.reportMinutes?.value);
-  if(Number.isFinite(minutes)) applyBonusRule(minutes);
-});
-on(el.submitReportBtn, "click", submitReport);
-on(el.discardBtn, "click", discardReport);
-
-// inputs
-on(el.category, "change", ()=>{
-  if(state.status==="idle"){
-    state.selectedCategory = el.category.value;
-    saveState();
-  }
-});
-on(el.questName, "input", ()=>{
-  if(state.status==="idle"){
-    state.questName = el.questName.value || "";
-    saveState();
-    clearNameWarn();
-  }
-});
-
-// history
-on(el.historyBtn, "click", openHistory);
-on(el.closeOverlayBtn, "click", closeHistory);
-on(el.overlay, "click", (e)=>{ if(e.target===el.overlay) closeHistory(); });
-
-// today actions
-on(el.resetTodayBtn, "click", resetToday);
-on(el.undoBtn, "click", doUndo);
-on(el.redoBtn, "click", doRedo);
-
-// export/import
-on(el.exportBtn, "click", exportData);
-on(el.importBtn, "click", ()=>{
-  if(el.importFile){
-    el.importFile.value = "";
-    el.importFile.click();
-  }
-});
-on(el.importFile, "change", async ()=>{
-  const file = el.importFile?.files?.[0];
-  if(!file) return;
-  await importFromFile(file);
-});
-
-// cutting time
-on(el.cutToggleBtn, "click", ()=>{
-  if(state.status !== "idle"){
-    showTimerWarn("ตั้งเวลาได้ก่อน Start เท่านั้น");
-    return;
-  }
-  state.cutEnabled = !state.cutEnabled;
-  if(!state.cutEnabled){
-    state.cutMinutes = null;
-    if(el.cutMinutes) el.cutMinutes.value = "";
-    state.softWarned = false;
-    state.softDeadlineTs = 0;
-  }else{
-    state.cutMinutes = readCutMinutes();
-  }
-  saveState();
-  renderCutUI();
-});
-on(el.cutMinutes, "input", ()=>{
-  if(state.status !== "idle") return;
-  if(el.cutMinutes) el.cutMinutes.value = sanitizeDigitsOnly(el.cutMinutes.value);
-  state.cutMinutes = readCutMinutes();
-  saveState();
-  renderCutUI();
-});
-on(el.cutMode, "change", ()=>{
-  if(state.status !== "idle") return;
-  state.cutMode = el.cutMode?.value || "hard";
-  saveState();
-});
-
-// tooltip
-document.querySelectorAll(".helpBtn[data-tip]").forEach(btn=>{
-  on(btn, "click", (e)=>{
-    e.stopPropagation();
-    const key = btn.dataset.tip;
-    if(el.tooltip?.classList.contains("show")) hideTooltip();
-    else showTooltip(btn, key);
-  });
-});
-on(el.tipCloseBtn, "click", hideTooltip);
-on(document, "click", (e)=>{
-  if(el.tooltip?.classList.contains("show")){
-    const t = el.tooltip.contains(e.target);
-    const hb = e.target.classList && e.target.classList.contains("helpBtn");
-    if(!t && !hb) hideTooltip();
-  }
-});
-on(el.appScroll, "scroll", ()=>{ if(el.tooltip?.classList.contains("show")) hideTooltip(); }, { passive:true });
-on(window, "resize", ()=>{ if(el.tooltip?.classList.contains("show")) hideTooltip(); });
-
-// onboarding
-on(el.openOnboardBtn, "click", ()=> openOnboarding());
-on(el.okOnBtn, "click", ()=> closeOnboarding(true));
-on(el.onOverlay, "click", (e)=>{ if(e.target===el.onOverlay) closeOnboarding(true); });
-
-// Gate cover start
-on(el.gateCoverStartBtn, "click", gateStartFromCover);
-
-// Gate top button
-on(el.gateTopOpenBtn, "click", ()=>{
-  if(!isGateActiveToday()) return;
-
-  if(gate.locked && !gate.unlocked){
-    const reason = prompt("Unlock Reason (สั้นๆ แต่จริง):", "");
-    if(reason && reason.trim()){
-      gate.unlocked = true;
-      gate.locked = false;
-      gate.unlockReason = reason.trim();
-      gate.bonusGranted = true; // unlock = ตัดโบนัส
-      saveGate();
-      gateEnforceStartButton();
-      renderGateUX();
-      showTimerWarn("Unlock ✅ (Bonus ถูกตัด)");
-    }else{
-      showTimerWarn("ต้องใส่เหตุผลก่อน");
+    if(!day.quests || day.quests.length===0){
+      el.dayView.innerHTML = `<div class="hint">วันนั้นยังไม่มีรายงาน</div>`;
+      return;
     }
-    return;
+
+    const log = day.quests.slice().reverse();
+    el.dayView.innerHTML = `
+      <div class="badge" style="margin-bottom:10px;">Total: <b>${Number(day.totalQps||0).toFixed(1)}</b></div>
+      <div class="list">
+        ${log.map(item=>{
+          const name = normQuestName(item.questName) ? normQuestName(item.questName) : "(no name)";
+          return `
+            <div class="item">
+              <div class="itemTop">
+                <div class="itemName">${escapeHtml(name)}</div>
+                <div class="itemScore">+${Number(item.questScore||0).toFixed(1)}</div>
+              </div>
+              <div class="itemMeta">
+                ${escapeHtml(item.category)} • ${item.minutesSpent} min • base ${Number(item.baseScore||0).toFixed(1)} + bonus ${item.qualityBonus||0}
+              </div>
+              ${item.notes ? `<div class="itemMeta" style="margin-top:8px;">📝 ${escapeHtml(item.notes)}</div>` : ``}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
   }
 
-  if(gateIsWorldActiveNow() && !gate.passed){
-    const dl = new Date(gateWorldDeadlineTs());
-    const pad2 = n => String(n).padStart(2,"0");
-    showTimerWarn(`Deadline: ${pad2(dl.getHours())}:${pad2(dl.getMinutes())} • PASS ที่ ${GATE_RULES.qualifyMin} นาที`);
+  /* =========================
+    EXPORT/IMPORT
+  ========================= */
+  function downloadJson(filename, obj){
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
-});
-
-/* ===== Gate Page events (NEW) ===== */
-// Open Gate Page ONLY from top-right button
-on(el.gateToggleBtn, "click", ()=>{
-  if(state.status !== "idle"){
-    showTimerWarn("เข้า Gate ได้ตอน Idle เท่านั้น");
-    return;
+  function isValidDataShape(all){
+    if(!all || typeof all !== "object") return false;
+    for(const dayKey of Object.keys(all)){
+      const day = all[dayKey];
+      if(!day || typeof day !== "object") return false;
+      if(!Array.isArray(day.quests)) return false;
+      if(typeof day.totalQps !== "number") return false;
+    }
+    return true;
   }
-  openGatePage();
-});
-
-// Close Gate Page
-on(el.gatePageCloseBtn, "click", closeGatePage);
-on(el.gatePage, "click", (e)=>{ if(e.target === el.gatePage) closeGatePage(); });
-
-// Toggle ON/OFF inside Gate Page
-on(el.gatePageEnableBtn, "click", ()=>{
-  if(state.status !== "idle"){
-    showTimerWarn("เปลี่ยน Gate ได้ตอน Idle เท่านั้น");
-    return;
+  function exportData(){
+    const payload = {
+      version: KEY_DATA,
+      exportedAt: new Date().toISOString(),
+      data: loadAll()
+    };
+    downloadJson(`qpsData_v4_${localDateKey()}.json`, payload);
+    showTimerWarn("Exported ✅ (ไฟล์อยู่ Downloads)");
   }
-  if(!gateCfg.triggerHHMM){
-    showTimerWarn("ตั้ง Trigger ก่อน");
-    gateCfg.enabled = false;
+  function importDataObject(imported, mode="merge"){
+    const raw = imported?.data ?? imported;
+    if(!isValidDataShape(raw)){
+      alert("ไฟล์ไม่ถูกต้อง: โครงสร้างไม่ตรง qpsData_v4");
+      return;
+    }
+
+    pushUndoSnapshot();
+
+    if(mode === "replace"){
+      saveAll(raw);
+    }else{
+      const cur = loadAll();
+      for(const dayKey of Object.keys(raw)){
+        const incomingDay = raw[dayKey];
+        const target = ensureDay(cur, dayKey);
+        target.quests = target.quests.concat(incomingDay.quests || []);
+        recalcDayTotal(target);
+      }
+      saveAll(cur);
+    }
+
+    updateStreakAfterChange();
+    selectedDay = localDateKey();
+    updateUI();
+
+    if(el.overlay?.classList.contains("show")){
+      renderHistoryDays();
+      renderDayView(selectedDay);
+    }
+
+    if(isFirstQuestAlreadyDoneToday()){
+      gate.passed = true;
+      gate.locked = false;
+      gate.unlocked = true;
+      saveGate();
+    }
+
+    showTimerWarn(`Imported ✅ (${mode.toUpperCase()})`);
+  }
+  async function importFromFile(file){
+    const text = await file.text();
+    let obj;
+    try { obj = JSON.parse(text); }
+    catch { alert("ไฟล์ JSON อ่านไม่ได้"); return; }
+
+    const choice = prompt("Import mode: พิมพ์ merge หรือ replace", "merge");
+    const mode = (choice || "merge").toLowerCase() === "replace" ? "replace" : "merge";
+    if(!confirm(`ยืนยัน Import แบบ ${mode.toUpperCase()} ?`)) return;
+
+    importDataObject(obj, mode);
+  }
+
+  /* =========================
+    TOOLTIP
+  ========================= */
+  const TIPS = {
+    top:   { title: "ภาพรวม", body: "หลักการ: Start → Stop → Report → ได้คะแนน\nUndo/Redo ใช้แก้ล่าสุดได้ (หน้า Today)\nMorning Gate: ตั้งในหน้า Gate (กดปุ่ม Morning Gate ขวาบน)\nRandom Quest ใช้กัน plan switching (มี cooldown)" },
+    timer: { title: "Timer", body: "เลือกหมวด + ตั้ง Quest Name แล้วกด Start\nPause/Resume ได้\nStop แล้วค่อย Report" },
+    name:  { title: "Quest Name (ห้ามซ้ำ)", body: "ชื่อต้องไม่ซ้ำในวันเดียว\nCap base จะนับตามชื่อเควสนี้ (60 นาที/วัน/ชื่อ)" },
+    today: { title: "Today", body: "ดูคะแนนรวมวันนี้ + รายการเควส\nExport/Import ใช้สำรองข้อมูล" },
+    report:{ title: "Report", body: "Report จะโผล่เมื่อกด Stop\nMinutes > 0\nBonus ใช้ได้เมื่อเวลา ≥ 30 นาที" },
+    cut:   { title: "Cutting Time", body: "กด Set Time เพื่อเปิด\nใส่นาที 1–360\nHard: ถึงแล้วหยุดทันที\nSoft: เตือนก่อน 10 วิ แล้วหยุด" },
+    gate:  { title: "Morning Gate", body:
+  `ตั้งค่าในหน้า Gate (กดปุ่ม Morning Gate ขวาบน)
+  - Trigger ล็อก 7 วันหลังตั้ง
+  - Limit 10 นาที (fix) • Qualify 3 นาที (fix)
+  - กันโกง: ตั้งหลัง Trigger วันนี้ → เริ่มใช้พรุ่งนี้
+  - PASS = เควสแรกวิ่งครบ 3 นาทีภายใน deadline → โบนัส +6` },
+    random: { title:"Random Quest", body:
+  `ใช้หลัง Morning Gate PASS หรือใช้กัน plan switching
+  สุ่มแล้วติด cooldown 30 นาทีทันที
+  Start Now = auto-fill ชื่อ + category + cutting time แล้ว Start
+  กันสุ่มซ้ำในวันเดียว` }
+  };
+
+  function showTooltip(anchorEl, tipKey){
+    if(!el.tooltip || !el.tipArrow || !el.tipTitle || !el.tipBody || !el.appScroll) return;
+
+    const tip = TIPS[tipKey] || { title:"Tip", body:"-" };
+    el.tipTitle.textContent = tip.title;
+    el.tipBody.textContent = tip.body;
+
+    const sc = el.appScroll;
+    const scRect = sc.getBoundingClientRect();
+    const rect = anchorEl.getBoundingClientRect();
+
+    const pad = 10;
+    const tw = Math.min(340, scRect.width - 24);
+
+    const anchorLeftInApp = (rect.left - scRect.left) + sc.scrollLeft;
+    const anchorTopInApp  = (rect.top  - scRect.top)  + sc.scrollTop;
+
+    let left = anchorLeftInApp;
+    let top  = anchorTopInApp + rect.height + pad;
+
+    left = Math.max(sc.scrollLeft + 12, Math.min(left, sc.scrollLeft + scRect.width - tw - 12));
+
+    const approxH = 200;
+    if(top + approxH > sc.scrollTop + sc.clientHeight - 12){
+      top = anchorTopInApp - approxH - pad;
+    }
+    top = Math.max(sc.scrollTop + 12, top);
+
+    el.tooltip.style.left = left + "px";
+    el.tooltip.style.top  = top + "px";
+    el.tooltip.style.width = tw + "px";
+    el.tooltip.classList.add("show");
+
+    const arrowSize = 14;
+    let ax = anchorLeftInApp + 10;
+    ax = Math.max(sc.scrollLeft + 12, Math.min(ax, sc.scrollLeft + scRect.width - arrowSize - 12));
+    const ay = (top > anchorTopInApp) ? (anchorTopInApp + rect.height + 2) : (anchorTopInApp - arrowSize - 2);
+
+    el.tipArrow.style.left = ax + "px";
+    el.tipArrow.style.top  = ay + "px";
+    el.tipArrow.classList.add("show");
+  }
+  function hideTooltip(){
+    el.tooltip?.classList.remove("show");
+    el.tipArrow?.classList.remove("show");
+  }
+
+  /* =========================
+    ONBOARDING
+  ========================= */
+  function openOnboarding(){ el.onOverlay?.classList.add("show"); }
+  function closeOnboarding(markSeen=true){
+    el.onOverlay?.classList.remove("show");
+    if(markSeen) localStorage.setItem(KEY_ONBOARD, "1");
+  }
+  function maybeShowOnboardingFirstTime(){
+    const seen = localStorage.getItem(KEY_ONBOARD) === "1";
+    if(!seen) openOnboarding();
+  }
+
+  /* =========================
+    EVENTS
+  ========================= */
+  // timer buttons
+  on(el.startBtn, "click", startQuest);
+  on(el.pauseBtn, "click", pauseQuest);
+  on(el.resumeBtn, "click", resumeQuest);
+  on(el.stopBtn, "click", stopQuest);
+
+  // report
+  on(el.reportMinutes, "input", ()=>{
+    const minutes = Number(el.reportMinutes?.value);
+    if(Number.isFinite(minutes)) applyBonusRule(minutes);
+  });
+  on(el.submitReportBtn, "click", submitReport);
+  on(el.discardBtn, "click", discardReport);
+
+  // inputs
+  on(el.category, "change", ()=>{
+    if(state.status==="idle"){
+      state.selectedCategory = el.category.value;
+      saveState();
+    }
+  });
+  on(el.questName, "input", ()=>{
+    if(state.status==="idle"){
+      state.questName = el.questName.value || "";
+      saveState();
+      clearNameWarn();
+    }
+  });
+
+  // history
+  on(el.historyBtn, "click", openHistory);
+  on(el.closeOverlayBtn, "click", closeHistory);
+  on(el.overlay, "click", (e)=>{ if(e.target===el.overlay) closeHistory(); });
+
+  // today actions
+  on(el.resetTodayBtn, "click", resetToday);
+  on(el.undoBtn, "click", doUndo);
+  on(el.redoBtn, "click", doRedo);
+
+  // export/import
+  on(el.exportBtn, "click", exportData);
+  on(el.importBtn, "click", ()=>{
+    if(el.importFile){
+      el.importFile.value = "";
+      el.importFile.click();
+    }
+  });
+  on(el.importFile, "change", async ()=>{
+    const file = el.importFile?.files?.[0];
+    if(!file) return;
+    await importFromFile(file);
+  });
+
+  // cutting time
+  on(el.cutToggleBtn, "click", ()=>{
+    if(state.status !== "idle"){
+      showTimerWarn("ตั้งเวลาได้ก่อน Start เท่านั้น");
+      return;
+    }
+    state.cutEnabled = !state.cutEnabled;
+    if(!state.cutEnabled){
+      state.cutMinutes = null;
+      if(el.cutMinutes) el.cutMinutes.value = "";
+      state.softWarned = false;
+      state.softDeadlineTs = 0;
+    }else{
+      state.cutMinutes = readCutMinutes();
+    }
+    saveState();
+    renderCutUI();
+  });
+  on(el.cutMinutes, "input", ()=>{
+    if(state.status !== "idle") return;
+    if(el.cutMinutes) el.cutMinutes.value = sanitizeDigitsOnly(el.cutMinutes.value);
+    state.cutMinutes = readCutMinutes();
+    saveState();
+    renderCutUI();
+  });
+  on(el.cutMode, "change", ()=>{
+    if(state.status !== "idle") return;
+    state.cutMode = el.cutMode?.value || "hard";
+    saveState();
+  });
+
+  // tooltip
+  document.querySelectorAll(".helpBtn[data-tip]").forEach(btn=>{
+    on(btn, "click", (e)=>{
+      e.stopPropagation();
+      const key = btn.dataset.tip;
+      if(el.tooltip?.classList.contains("show")) hideTooltip();
+      else showTooltip(btn, key);
+    });
+  });
+  on(el.tipCloseBtn, "click", hideTooltip);
+  on(document, "click", (e)=>{
+    if(el.tooltip?.classList.contains("show")){
+      const t = el.tooltip.contains(e.target);
+      const hb = e.target.classList && e.target.classList.contains("helpBtn");
+      if(!t && !hb) hideTooltip();
+    }
+  });
+  on(el.appScroll, "scroll", ()=>{ if(el.tooltip?.classList.contains("show")) hideTooltip(); }, { passive:true });
+  on(window, "resize", ()=>{ if(el.tooltip?.classList.contains("show")) hideTooltip(); });
+
+  // onboarding
+  on(el.openOnboardBtn, "click", ()=> openOnboarding());
+  on(el.okOnBtn, "click", ()=> closeOnboarding(true));
+  on(el.onOverlay, "click", (e)=>{ if(e.target===el.onOverlay) closeOnboarding(true); });
+
+  // Gate cover start
+  on(el.gateCoverStartBtn, "click", gateStartFromCover);
+
+  // Gate top button
+  on(el.gateTopOpenBtn, "click", ()=>{
+    if(!isGateActiveToday()) return;
+
+    if(gate.locked && !gate.unlocked){
+      const reason = prompt("Unlock Reason (สั้นๆ แต่จริง):", "");
+      if(reason && reason.trim()){
+        gate.unlocked = true;
+        gate.locked = false;
+        gate.unlockReason = reason.trim();
+        gate.bonusGranted = true; // unlock = ตัดโบนัส
+        saveGate();
+        gateEnforceStartButton();
+        renderGateUX();
+        showTimerWarn("Unlock ✅ (Bonus ถูกตัด)");
+      }else{
+        showTimerWarn("ต้องใส่เหตุผลก่อน");
+      }
+      return;
+    }
+
+    if(gateIsWorldActiveNow() && !gate.passed){
+      const dl = new Date(gateWorldDeadlineTs());
+      const pad2 = n => String(n).padStart(2,"0");
+      showTimerWarn(`Deadline: ${pad2(dl.getHours())}:${pad2(dl.getMinutes())} • PASS ที่ ${GATE_RULES.qualifyMin} นาที`);
+    }
+  });
+
+  /* ===== Gate Page events (NEW) ===== */
+  // Open Gate Page ONLY from top-right button
+  on(el.gateToggleBtn, "click", ()=>{
+    if(state.status !== "idle"){
+      showTimerWarn("เข้า Gate ได้ตอน Idle เท่านั้น");
+      return;
+    }
+    openGatePage();
+  });
+
+  // Close Gate Page
+  on(el.gatePageCloseBtn, "click", closeGatePage);
+  on(el.gatePage, "click", (e)=>{ if(e.target === el.gatePage) closeGatePage(); });
+
+  // Toggle ON/OFF inside Gate Page
+  on(el.gatePageEnableBtn, "click", ()=>{
+    if(state.status !== "idle"){
+      showTimerWarn("เปลี่ยน Gate ได้ตอน Idle เท่านั้น");
+      return;
+    }
+    if(!gateCfg.triggerHHMM){
+      showTimerWarn("ตั้ง Trigger ก่อน");
+      gateCfg.enabled = false;
+      saveGateCfg();
+      syncGateRuntimeFromCfg();
+      renderGatePageUI();
+      renderGateTogglePill();
+      renderGateUX();
+      gateEnforceStartButton();
+      return;
+    }
+    gateCfg.enabled = !gateCfg.enabled;
     saveGateCfg();
     syncGateRuntimeFromCfg();
+
+    if(!gateCfg.enabled){
+      hideGateCover();
+      hideGateTopBar();
+    }
+
     renderGatePageUI();
     renderGateTogglePill();
     renderGateUX();
     gateEnforceStartButton();
-    return;
-  }
-  gateCfg.enabled = !gateCfg.enabled;
-  saveGateCfg();
-  syncGateRuntimeFromCfg();
+    rqShowIfEligible();
 
-  if(!gateCfg.enabled){
-    hideGateCover();
-    hideGateTopBar();
-  }
+    showTimerWarn(gateCfg.enabled ? "Morning Gate: ON" : "Morning Gate: OFF");
+  });
 
-  renderGatePageUI();
-  renderGateTogglePill();
-  renderGateUX();
-  gateEnforceStartButton();
-  rqShowIfEligible();
+  // Trigger change inside Gate Page
+  on(el.gatePageTriggerInput, "change", ()=>{
+    if(state.status !== "idle"){
+      showTimerWarn("ตั้งค่าได้ตอน Idle เท่านั้น");
+      renderGatePageUI();
+      return;
+    }
 
-  showTimerWarn(gateCfg.enabled ? "Morning Gate: ON" : "Morning Gate: OFF");
-});
+    const hhmm = el.gatePageTriggerInput?.value;
+    if(!hhmm){
+      showTimerWarn("ต้องเลือกเวลา");
+      renderGatePageUI();
+      return;
+    }
 
-// Trigger change inside Gate Page
-on(el.gatePageTriggerInput, "change", ()=>{
-  if(state.status !== "idle"){
-    showTimerWarn("ตั้งค่าได้ตอน Idle เท่านั้น");
+    // ✅ allow set even if currently OFF (ต่างจากของเดิม) — เพราะตั้งในหน้า Gate โดยตรง
+    const res = setTriggerWithLock7Days(hhmm);
+    if(!res.ok){
+      showTimerWarn(res.msg);
+      // restore value
+      if(el.gatePageTriggerInput) el.gatePageTriggerInput.value = gateCfg.triggerHHMM || "";
+      renderGatePageUI();
+      return;
+    }
+
+    gateResetForToday(true);
+    syncGateRuntimeFromCfg();
+
     renderGatePageUI();
-    return;
-  }
+    renderGateTogglePill();
+    renderGateUX();
+    gateEnforceStartButton();
 
-  const hhmm = el.gatePageTriggerInput?.value;
-  if(!hhmm){
-    showTimerWarn("ต้องเลือกเวลา");
-    renderGatePageUI();
-    return;
-  }
+    showTimerWarn((res.effectiveFrom && localDateKey() < res.effectiveFrom)
+      ? `Trigger set → ${gateCfg.triggerHHMM} (เริ่มใช้พรุ่งนี้)`
+      : `Trigger set → ${gateCfg.triggerHHMM}`
+    );
+  });
 
-  // ✅ allow set even if currently OFF (ต่างจากของเดิม) — เพราะตั้งในหน้า Gate โดยตรง
-  const res = setTriggerWithLock7Days(hhmm);
-  if(!res.ok){
-    showTimerWarn(res.msg);
-    // restore value
-    if(el.gatePageTriggerInput) el.gatePageTriggerInput.value = gateCfg.triggerHHMM || "";
-    renderGatePageUI();
-    return;
-  }
+  /* ===== Random Quest events ===== */
+  on(el.diceBtn, "click", ()=>{
+    if(rqIsCooldown()){
+      rqTickUI();
+      showTimerWarn("ติด cooldown");
+      return;
+    }
+    rqOpenModal();
+  });
+  on(el.rqClose, "click", rqCloseModal);
+  on(el.rqOverlay, "click", (e)=>{ if(e.target===el.rqOverlay) rqCloseModal(); });
 
-  gateResetForToday(true);
-  syncGateRuntimeFromCfg();
+  on(el.rqPickLow, "click", ()=> rqHandleRandom("low"));
+  on(el.rqPickMid, "click", ()=> rqHandleRandom("mid"));
+  on(el.rqPickHigh, "click", ()=> rqHandleRandom("high"));
 
-  renderGatePageUI();
-  renderGateTogglePill();
-  renderGateUX();
-  gateEnforceStartButton();
-
-  showTimerWarn((res.effectiveFrom && localDateKey() < res.effectiveFrom)
-    ? `Trigger set → ${gateCfg.triggerHHMM} (เริ่มใช้พรุ่งนี้)`
-    : `Trigger set → ${gateCfg.triggerHHMM}`
-  );
-});
-
-/* ===== Random Quest events ===== */
-on(el.diceBtn, "click", ()=>{
-  if(rqIsCooldown()){
+  on(el.rqStartNow2, "click", ()=>{
+    rqStartNow();
+    if(state.status === "running") rqCloseModal();
+  });
+  on(el.rqClear2, "click", ()=>{
+    rqClearSelected();
     rqTickUI();
-    showTimerWarn("ติด cooldown");
-    return;
-  }
-  rqOpenModal();
-});
-on(el.rqClose, "click", rqCloseModal);
-on(el.rqOverlay, "click", (e)=>{ if(e.target===el.rqOverlay) rqCloseModal(); });
+  });
 
-on(el.rqPickLow, "click", ()=> rqHandleRandom("low"));
-on(el.rqPickMid, "click", ()=> rqHandleRandom("mid"));
-on(el.rqPickHigh, "click", ()=> rqHandleRandom("high"));
-
-on(el.rqStartNow2, "click", ()=>{
-  rqStartNow();
-  if(state.status === "running") rqCloseModal();
-});
-on(el.rqClear2, "click", ()=>{
-  rqClearSelected();
-  rqTickUI();
-});
-
-/* =========================
-  BACKGROUND FIX
-========================= */
-document.addEventListener("visibilitychange", ()=>{
-  if(!document.hidden){
+  /* =========================
+    BACKGROUND FIX
+  ========================= */
+  document.addEventListener("visibilitychange", ()=>{
+    if(!document.hidden){
+      syncGateRuntimeFromCfg();
+      gateMaybeLock();
+      gateCheckFirstQuestQualify();
+      gateEnforceStartButton();
+      renderGateUX();
+      rqTickUI();
+      renderGatePageUI();
+    }
+  });
+  window.addEventListener("focus", ()=>{
     syncGateRuntimeFromCfg();
     gateMaybeLock();
     gateCheckFirstQuestQualify();
@@ -3967,103 +3976,92 @@ document.addEventListener("visibilitychange", ()=>{
     renderGateUX();
     rqTickUI();
     renderGatePageUI();
-  }
-});
-window.addEventListener("focus", ()=>{
-  syncGateRuntimeFromCfg();
-  gateMaybeLock();
-  gateCheckFirstQuestQualify();
-  gateEnforceStartButton();
-  renderGateUX();
-  rqTickUI();
-  renderGatePageUI();
-});
-
-/* =========================
-  BOOT
-========================= */
-function boot(){
-  loadState();
-  loadGateCfg();
-  loadGate();
-  syncGateRuntimeFromCfg();
-
-  if(state.status==="running" && !state.startTs){
-    state.status="paused";
-    state.startTs=null;
-    saveState();
-  }
-
-  if(state.status==="idle"){
-    if(el.category) el.category.value = state.selectedCategory || "Learning";
-    if(el.questName) el.questName.value = state.questName || "";
-    if(el.cutMinutes) el.cutMinutes.value = state.cutMinutes ? String(state.cutMinutes) : "";
-    if(el.cutMode) el.cutMode.value = state.cutMode || "hard";
-  }
-
-  renderCutUI();
-  updateUI();
-  updateStreakAfterChange();
-  maybeShowOnboardingFirstTime();
-
-  gateEnforceStartButton();
-  rqShowIfEligible();
-  rqTickUI();
-
-  startTick();
-}
-boot();
-
-(() => {
-  const btn = document.getElementById("gateToggleBtn"); // ปุ่มบนหัว
-  const page = document.getElementById("gatePage");     // overlay
-  const close1 = document.getElementById("gatePageCloseBtn");
-  const close2 = document.getElementById("gatePageCloseBtn2");
-
-  if(!btn) console.warn("❌ ไม่เจอ #gateToggleBtn");
-  if(!page) console.warn("❌ ไม่เจอ #gatePage");
-
-  function openGatePage(){
-    if(!page) return;
-    page.style.display = "block";
-    page.classList.add("show");
-    page.setAttribute("aria-hidden","false");
-    document.body.style.overflow = "hidden";
-  }
-
-  function closeGatePage(){
-    if(!page) return;
-    page.classList.remove("show");
-    page.style.display = "none";
-    page.setAttribute("aria-hidden","true");
-    document.body.style.overflow = "";
-  }
-
-  // กดปุ่มบนหัว = เปิดหน้า Gate (ไม่ต้อง toggle ON/OFF ตอนนี้ แค่เปิดหน้า)
-  if(btn){
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      openGatePage();
-    });
-  }
-
-  // ปุ่มปิด
-  if(close1) close1.addEventListener("click", closeGatePage);
-  if(close2) close2.addEventListener("click", closeGatePage);
-
-  // คลิกพื้นที่มืดนอก modal = ปิด
-  if(page){
-    page.addEventListener("click", (e) => {
-      if(e.target === page) closeGatePage();
-    });
-  }
-
-  // ESC = ปิด
-  window.addEventListener("keydown", (e) => {
-    if(e.key === "Escape") closeGatePage();
   });
-})();
-</script>
+
+  /* =========================
+    BOOT
+  ========================= */
+  function boot(){
+    loadState();
+    loadGateCfg();
+    loadGate();
+    syncGateRuntimeFromCfg();
+
+    if(state.status==="running" && !state.startTs){
+      state.status="paused";
+      state.startTs=null;
+      saveState();
+    }
+
+    if(state.status==="idle"){
+      if(el.category) el.category.value = state.selectedCategory || "Learning";
+      if(el.questName) el.questName.value = state.questName || "";
+      if(el.cutMinutes) el.cutMinutes.value = state.cutMinutes ? String(state.cutMinutes) : "";
+      if(el.cutMode) el.cutMode.value = state.cutMode || "hard";
+    }
+
+    renderCutUI();
+    updateUI();
+    updateStreakAfterChange();
+    maybeShowOnboardingFirstTime();
+
+    gateEnforceStartButton();
+    rqShowIfEligible();
+    rqTickUI();
+
+    startTick();
+  }
+  boot();
+
+  (() => {
+    const btn = document.getElementById("gateToggleBtn"); // ปุ่มบนหัว
+    const page = document.getElementById("gatePage");     // overlay
+    const close2 = document.getElementById("gatePageCloseBtn2");
+
+    if(!btn) console.warn("❌ ไม่เจอ #gateToggleBtn");
+    if(!page) console.warn("❌ ไม่เจอ #gatePage");
+
+    function openGatePage(){
+      if(!page) return;
+      page.style.display = "block";
+      page.classList.add("show");
+      page.setAttribute("aria-hidden","false");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeGatePage(){
+      if(!page) return;
+      page.classList.remove("show");
+      page.style.display = "none";
+      page.setAttribute("aria-hidden","true");
+      document.body.style.overflow = "";
+    }
+
+    // กดปุ่มบนหัว = เปิดหน้า Gate (ไม่ต้อง toggle ON/OFF ตอนนี้ แค่เปิดหน้า)
+    if(btn){
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        openGatePage();
+      });
+    }
+
+    // ปุ่มปิด
+    
+    if(close2) close2.addEventListener("click", closeGatePage);
+
+    // คลิกพื้นที่มืดนอก modal = ปิด
+    if(page){
+      page.addEventListener("click", (e) => {
+        if(e.target === page) closeGatePage();
+      });
+    }
+
+    // ESC = ปิด
+    window.addEventListener("keydown", (e) => {
+      if(e.key === "Escape") closeGatePage();
+    });
+  })();
+  </script>
   
   </body>
   </html>
