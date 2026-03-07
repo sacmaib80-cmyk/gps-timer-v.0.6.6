@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>QPS Timer v0.7.1</title>
+    <title>SakuraQ v0.7.2</title>
 
     <style>
       :root{
@@ -60,220 +60,312 @@
       }
       .container{ max-width: 860px; margin: 0 auto; }
 
-/* =========================
-   TOPBAR CLEAN v3
-========================= */
+  /* =========================
+    TOPBAR CLEAN v3
+  ========================= */
 
-.topbar{
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  margin: 0 auto 12px;
-  padding: 10px 10px 12px;
-  background: transparent;
-}
+  .topbar{
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    margin: 0 auto 12px;
+    padding: 10px 10px 12px;
+    background: transparent;
+  }
 
-.topbar::before{
-  display: none;
-}
+  .topbar::before{
+    display: none;
+  }
 
-.topbarShell{
-  position: relative;
-  z-index: 1;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 14px 14px 12px;
-  border-radius: 26px;
-  overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    rgba(255,255,255,.90),
-    rgba(255,255,255,.78)
-  );
-  border: 1px solid rgba(255,255,255,.52);
-  box-shadow:
-    0 16px 34px rgba(15,23,42,.08),
-    inset 0 1px 0 rgba(255,255,255,.65);
-}
+  .topbarShell{
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 14px 14px 12px;
+    border-radius: 26px;
+    overflow: hidden;
+    background: linear-gradient(
+      180deg,
+      rgba(255,255,255,.90),
+      rgba(255,255,255,.78)
+    );
+    border: 1px solid rgba(255,255,255,.52);
+    box-shadow:
+      0 16px 34px rgba(15,23,42,.08),
+      inset 0 1px 0 rgba(255,255,255,.65);
+  }
 
-.topMain.clean{
-  display:block;
-}
+  .topMain.clean{
+    display:block;
+  }
 
-.brandBlock{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.brandLeft{
-  display:flex;
-  align-items:center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.brandIcon{
-  width: 40px;
-  height: 40px;
-  border-radius: 13px;
-  display:grid;
-  place-items:center;
-  flex: 0 0 auto;
-  font-size: 16px;
-  font-weight: 950;
-  color: #0f172a;
-  background: linear-gradient(135deg, rgba(96,165,250,.16), rgba(34,197,94,.12));
-  border: 1px solid rgba(255,255,255,.6);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.75),
-    0 6px 14px rgba(15,23,42,.05);
-}
-
-.brandMeta{
-  min-width: 0;
-}
-
-.brandTitleRow{
-  display:flex;
-  align-items:center;
-  gap: 8px;
-  flex-wrap:wrap;
-}
-
-.brandMeta h1{
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.05;
-  font-weight: 900;
-  letter-spacing: -.02em;
-  color: #166534;
-  background: linear-gradient(90deg,#2563eb,#22c55e);
--webkit-background-clip: text;
--webkit-text-fill-color: transparent; 
-}
-
-.versionBadge{
-  display:inline-flex;
-  align-items:center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(15,23,42,.05);
-  border: 1px solid rgba(15,23,42,.07);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.brandMeta .sub{
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.topTools{
-  display:flex;
-  align-items:center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.miniStreak{
-  display:flex;
-  align-items:center;
-  gap:4px;
-  padding:0;
-  border:0;
-  background:transparent;
-}
-
-.fire{
-  font-size:18px;
-  line-height:1;
-}
-
-.streakNum{
-  font-size:13px;
-  font-weight:900;
-  color:#0f172a;
-  line-height:1;
-}
-
-.iconGhostBtn{
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding: 0;
-  border: 1px solid rgba(15,23,42,.08);
-  background: rgba(255,255,255,.74);
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 900;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.topNavWrap{
-  margin-top: 12px;
-  display:flex;
-  justify-content:center;
-}
-
-.topNav{
-  width: min(100%, 420px);
-  display:flex;
-  gap:4px;
-  padding:4px;
-  border-radius:999px;
-  background: rgba(255,255,255,.55);
-  border:1px solid rgba(15,23,42,.08);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.6);
-}
-
-.navBtn{
-  flex:1;
-  height:36px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:700;
-  background:transparent;
-  border:0;
-  color:var(--ink);
-  box-shadow:none;
-}
-
-.navBtn:hover{
-  background: rgba(255,255,255,.62);
-}
-
-.navBtn.active{
-  background:white;
-  box-shadow: 0 6px 14px rgba(0,0,0,.06);
-}
-
-@media(max-width:640px){
   .brandBlock{
-    align-items:flex-start;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .brandLeft{
+    display:flex;
+    align-items:center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .brandIcon{
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+    display:grid;
+    place-items:center;
+    flex: 0 0 auto;
+    font-size: 16px;
+    font-weight: 950;
+    color: #0f172a;
+    background: linear-gradient(135deg, rgba(96,165,250,.16), rgba(34,197,94,.12));
+    border: 1px solid rgba(255,255,255,.6);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.75),
+      0 6px 14px rgba(15,23,42,.05);
+  }
+
+  .brandMeta{
+    min-width: 0;
+  }
+
+  .brandTitleRow{
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    flex-wrap:wrap;
+  }
+
+  .brandMeta h1{
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.05;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    color: #166534;
+    background: linear-gradient(90deg,#2563eb,#22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent; 
+  }
+
+  .versionBadge{
+    display:inline-flex;
+    align-items:center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(15,23,42,.05);
+    border: 1px solid rgba(15,23,42,.07);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .brandMeta .sub{
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
   }
 
   .topTools{
-    gap: 6px;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    flex: 0 0 auto;
   }
 
   .miniStreak{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    padding:0;
+    border:0;
+    background:transparent;
+  }
+
+  .fire{
+    font-size:18px;
+    line-height:1;
+  }
+
+  .streakNum{
+    font-size:13px;
+    font-weight:900;
+    color:#0f172a;
+    line-height:1;
+  }
+
+  .iconGhostBtn{
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding: 0;
+    border: 1px solid rgba(15,23,42,.08);
+    background: rgba(255,255,255,.74);
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 900;
+    box-shadow: none;
+    cursor: pointer;
+  }
+
+  .topNavWrap{
+    margin-top: 12px;
+    display:flex;
+    justify-content:center;
+  }
+
+  .topNav{
+    width: min(100%, 420px);
+    display:flex;
+    gap:4px;
+    padding:4px;
+    border-radius:999px;
+    background: rgba(255,255,255,.55);
+    border:1px solid rgba(15,23,42,.08);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.6);
+  }
+
+  .navBtn{
+    flex:1;
+    height:36px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:0;
+    color:var(--ink);
+    box-shadow:none;
+  }
+
+  .navBtn:hover{
+    background: rgba(255,255,255,.62);
+  }
+
+  .navBtn.active{
+    background:white;
+    box-shadow: 0 6px 14px rgba(0,0,0,.06);
+  }
+
+  @media(max-width:640px){
+    .brandBlock{
+      align-items:flex-start;
+    }
+
+    .topTools{
+      gap: 6px;
+    }
+
+    .miniStreak{
+      font-size: 10px;
+      padding: 0 8px;
+    }
+
+    .topNav{
+      width: 100%;
+    }
+  }
+  @media (max-width: 640px){
+  .topbar{
+    margin: 0 0 10px;
+    padding: 0;
+    left: 0;
+    right: 0;
+  }
+
+  .topbarShell{
+    max-width: 100%;
+    margin: 0;
+    padding: 12px 12px 10px;
+    border-radius: 0 0 20px 20px;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+    box-shadow:
+      0 10px 24px rgba(15,23,42,.08),
+      inset 0 1px 0 rgba(255,255,255,.65);
+  }
+
+  .brandBlock{
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brandLeft{
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .brandIcon{
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    flex: 0 0 34px;
+  }
+
+  .brandMeta h1{
+    font-size: 16px;
+  }
+
+  .brandMeta .sub{
     font-size: 10px;
-    padding: 0 8px;
+    line-height: 1.25;
+  }
+
+  .versionBadge{
+    padding: 3px 7px;
+    font-size: 9px;
+  }
+
+  .topTools{
+    gap: 8px;
+    flex: 0 0 auto;
+  }
+
+  .miniStreak{
+    padding: 0;
+    gap: 3px;
+  }
+
+  .fire{
+    font-size: 16px;
+  }
+
+  .streakNum{
+    font-size: 12px;
+  }
+
+  .iconGhostBtn{
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .topNavWrap{
+    margin-top: 10px;
   }
 
   .topNav{
     width: 100%;
+    border-radius: 16px;
+  }
+
+  .navBtn{
+    height: 34px;
+    border-radius: 12px;
+    font-size: 12px;
   }
 }
 /* =========================
@@ -1605,7 +1697,27 @@ background-size: 200% 100%;
   border-color: rgba(34,197,94,.28);
   color:#166534;
 }
-    </style>
+.appIcon{
+  width:clamp(48px,6vw,65px);
+  height:clamp(48px,6vw,65px);
+  border-radius:16px;
+  overflow:hidden;
+  transition:all .25s ease;
+}
+
+.appIcon img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+/* hover effect */
+.appIcon:hover{
+  transform:translateY(-2px) scale(1.05);
+  box-shadow:0 6px 16px rgba(0,0,0,0.18);
+}
+
+</style>
   </head>
 
   <body>
@@ -1670,12 +1782,14 @@ background-size: 200% 100%;
     <div class="topMain clean">
       <div class="brandBlock">
         <div class="brandLeft">
-          <div class="brandIcon">Q</div>
+          <div class="appIcon">
+  <img src="logo.png" alt="QPS logo">
+</div>
 
           <div class="brandMeta">
             <div class="brandTitleRow">
-              <h1>QPS Timer</h1>
-              <span class="versionBadge">v0.7.1</span>
+              <h1>SakuraQ</h1>
+              <span class="versionBadge">v0.7.2</span>
             </div>
             <div class="sub" id="todayText">Today: ----</div>
           </div>
