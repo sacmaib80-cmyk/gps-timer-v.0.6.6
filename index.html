@@ -1014,8 +1014,8 @@
   ========================= */
   .diceFab{
   position: fixed;
-  right: 24px; /* จาก 16 → 24 */
-  bottom: 28px; /* จาก 18 → 28 */
+  left: calc(100vw - 84px);
+  top: calc(100vh - 120px);
   z-index: 10020;
 
   display:flex;
@@ -1023,9 +1023,40 @@
   align-items:center;
   gap:6px;
 
-  /* รองรับมือถือมี gesture bar */
-  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
+.diceFab{
+  cursor: grab;
+}
+
+.diceFab.dragging{
+  cursor: grabbing;
+}
+.diceFab{
+  position: fixed;
+  right: 24px;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  z-index: 10020;
+
+  display:flex;
+  flex-direction: column;
+  align-items:center;
+  gap:6px;
+
+  touch-action: none;   /* สำคัญ: ให้ลากบนมือถือได้ */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.diceFab.dragging{
+  transition: none !important;
+}
+
+.diceBtn{
+  touch-action: none;
+} 
 
 
   .diceBtn{
@@ -1232,13 +1263,6 @@
     0% { transform: rotate(0deg) scale(1); }
     45% { transform: rotate(180deg) scale(1.08); }
     100% { transform: rotate(360deg) scale(1); }
-  }
-  /* Fix Dice FAB position — Mobile only */
-@media (max-width: 768px){
-
-  .diceFab{
-    right: calc(8px + env(safe-area-inset-right, 0px));
-    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   }
 
 }
@@ -1546,10 +1570,7 @@ background-size: 200% 100%;
 }
 
 
-.diceFab{
-  bottom: calc(110px + env(safe-area-inset-bottom, 0px)) !important;
-  right:  calc(12px + env(safe-area-inset-right, 0px)) !important;
-}
+
 .draftHint{
   font-size:11px;
   color:#64748b;
@@ -2502,6 +2523,18 @@ function renderStreak(){
       if(s && typeof s==="object") state = { ...state, ...s };
     }catch{}
   }
+  let diceDrag = {
+  active: false,
+  moved: false,
+  startX: 0,
+  startY: 0,
+  originLeft: 0,
+  originTop: 0,
+  left: null,
+  top: null,
+};
+
+const KEY_DICE_POS = "qps_dice_pos_v1";
 
   /* =========================
     MORNING GATE CONFIG (lock 7 days)
@@ -4463,7 +4496,128 @@ on(el.notes, "input", saveReportDraft);
     rqTickUI();
     renderGatePageUI();
   });
+function loadDicePos(){
+  try{
+    const raw = localStorage.getItem(KEY_DICE_POS);
+    if(!raw) return null;
+    const p = JSON.parse(raw);
+    if(typeof p?.left !== "number" || typeof p?.top !== "number") return null;
+    return p;
+  }catch{
+    return null;
+  }
+}
 
+function saveDicePos(left, top){
+  localStorage.setItem(KEY_DICE_POS, JSON.stringify({ left, top }));
+}
+
+function clampDicePos(left, top){
+  if(!el.diceFab) return { left, top };
+
+  const rect = el.diceFab.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const pad = 8;
+  const maxLeft = Math.max(pad, vw - rect.width - pad);
+  const maxTop  = Math.max(pad, vh - rect.height - pad);
+
+  return {
+    left: Math.min(Math.max(left, pad), maxLeft),
+    top: Math.min(Math.max(top, pad), maxTop),
+  };
+}
+
+function applyDicePos(left, top){
+  if(!el.diceFab) return;
+
+  const p = clampDicePos(left, top);
+
+  el.diceFab.style.left = `${p.left}px`;
+  el.diceFab.style.top = `${p.top}px`;
+  el.diceFab.style.right = "auto";
+  el.diceFab.style.bottom = "auto";
+
+  diceDrag.left = p.left;
+  diceDrag.top = p.top;
+}
+
+function initDiceDrag(){
+  if(!el.diceFab) return;
+
+  const saved = loadDicePos();
+  if(saved){
+    applyDicePos(saved.left, saved.top);
+  }
+
+  const start = (clientX, clientY) => {
+    const rect = el.diceFab.getBoundingClientRect();
+
+    diceDrag.active = true;
+    diceDrag.moved = false;
+    diceDrag.startX = clientX;
+    diceDrag.startY = clientY;
+    diceDrag.originLeft = rect.left;
+    diceDrag.originTop = rect.top;
+
+    el.diceFab.classList.add("dragging");
+  };
+
+  const move = (clientX, clientY) => {
+    if(!diceDrag.active) return;
+
+    const dx = clientX - diceDrag.startX;
+    const dy = clientY - diceDrag.startY;
+
+    if(Math.abs(dx) > 4 || Math.abs(dy) > 4){
+      diceDrag.moved = true;
+    }
+
+    applyDicePos(diceDrag.originLeft + dx, diceDrag.originTop + dy);
+  };
+
+  const end = () => {
+    if(!diceDrag.active) return;
+
+    diceDrag.active = false;
+    el.diceFab.classList.remove("dragging");
+
+    if(typeof diceDrag.left === "number" && typeof diceDrag.top === "number"){
+      saveDicePos(diceDrag.left, diceDrag.top);
+    }
+  };
+
+  on(el.diceFab, "pointerdown", (e) => {
+    if(e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    start(e.clientX, e.clientY);
+  });
+
+  on(window, "pointermove", (e) => {
+    move(e.clientX, e.clientY);
+  });
+
+  on(window, "pointerup", end);
+  on(window, "pointercancel", end);
+
+  /* กัน click เปิด modal หลังลาก */
+  on(el.diceBtn, "click", (e) => {
+    if(diceDrag.moved){
+      e.preventDefault();
+      e.stopPropagation();
+      diceDrag.moved = false;
+    }
+  });
+
+  /* ถ้าหน้าจอเปลี่ยนขนาด ให้บีบกลับเข้าจอ */
+  on(window, "resize", () => {
+    if(typeof diceDrag.left === "number" && typeof diceDrag.top === "number"){
+      applyDicePos(diceDrag.left, diceDrag.top);
+      saveDicePos(diceDrag.left, diceDrag.top);
+    }
+  });
+}
   /* =========================
     BOOT
   ========================= */
@@ -4498,6 +4652,7 @@ on(el.notes, "input", saveReportDraft);
     rqShowIfEligible();
     rqTickUI();
 
+initDiceDrag();
     startTick();
   }
   boot();
